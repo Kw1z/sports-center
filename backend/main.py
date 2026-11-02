@@ -1,3 +1,10 @@
+
+from fastapi.security import (
+    HTTPBearer,
+    HTTPAuthorizationCredentials,
+)
+from jwt.exceptions import InvalidTokenError
+
 from datetime import datetime, timezone
 
 from fastapi import Depends
@@ -6,8 +13,13 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from models import User, Role
-from schemas import UserRegister, UserResponse, UserLogin
-from security import hash_password, verify_password
+from schemas import UserRegister, UserResponse, UserLogin, TokenResponse
+from security import (
+    hash_password,
+    verify_password,
+    create_access_token,
+    decode_access_token,
+)
 
 from fastapi import FastAPI, HTTPException
 from sqlalchemy import text
@@ -126,7 +138,10 @@ def register_user(
     return new_user
 
 
-@app.post("/api/auth/login")
+@app.post(
+    "/api/auth/login",
+    response_model=TokenResponse
+)
 def login_user(
     data: UserLogin,
     db: Session = Depends(get_db)
@@ -165,8 +180,68 @@ def login_user(
             detail="Неверный email или пароль"
         )
 
-    # Временный ответ до реализации JWT
+    
+    access_token = create_access_token(user.id)
+
     return {
-        "message": "Email и пароль успешно проверены"
+        "access_token": access_token,
+        "token_type": "bearer"
     }
+
+
+
+# Схема авторизации Bearer
+bearer_scheme = HTTPBearer(auto_error=False)
+
+
+# Получаем текущего пользователя по токену
+def get_current_user(
+    credentials: HTTPAuthorizationCredentials | None = Depends(
+        bearer_scheme
+    ),
+    db: Session = Depends(get_db),
+):
+    auth_error = HTTPException(
+        status_code=401,
+        detail="Недействительный или отсутствующий токен",
+        headers={"WWW-Authenticate": "Bearer"},
+    )
+
+    if credentials is None:
+        raise auth_error
+
+    try:
+        payload = decode_access_token(
+            credentials.credentials
+        )
+
+        user_id = payload.get("sub")
+
+        if (
+            not isinstance(user_id, str)
+            or not user_id.isdecimal()
+            or int(user_id) <= 0
+        ):
+            raise auth_error
+
+    except InvalidTokenError:
+        raise auth_error
+
+    user = db.get(User, int(user_id))
+
+    if user is None or not user.is_active:
+        raise auth_error
+
+    return user
+
+
+# Личный кабинет текущего пользователя
+@app.get(
+    "/api/auth/me",
+    response_model=UserResponse
+)
+def get_my_profile(
+    current_user: User = Depends(get_current_user)
+):
+    return current_user
 
