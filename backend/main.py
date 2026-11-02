@@ -6,8 +6,8 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from models import User, Role
-from schemas import UserRegister, UserResponse
-from security import hash_password
+from schemas import UserRegister, UserResponse, UserLogin
+from security import hash_password, verify_password
 
 from fastapi import FastAPI, HTTPException
 from sqlalchemy import text
@@ -124,4 +124,49 @@ def register_user(
         ) from exc
 
     return new_user
+
+
+@app.post("/api/auth/login")
+def login_user(
+    data: UserLogin,
+    db: Session = Depends(get_db)
+):
+    # Приводим email к единому виду
+    email = str(data.email).strip().lower()
+
+    # Находим пользователя по email
+    user = db.scalar(
+        select(User).where(
+            func.lower(User.email) == email
+        )
+    )
+
+    # Проверяем, что пользователь существует
+    if user is None:
+        raise HTTPException(
+            status_code=401,
+            detail="Неверный email или пароль"
+        )
+
+    # Проверяем правильность пароля
+    if not verify_password(
+        data.password,
+        user.password_hash
+    ):
+        raise HTTPException(
+            status_code=401,
+            detail="Неверный email или пароль"
+        )
+
+    # Проверяем, что аккаунт активен
+    if not user.is_active:
+        raise HTTPException(
+            status_code=401,
+            detail="Неверный email или пароль"
+        )
+
+    # Временный ответ до реализации JWT
+    return {
+        "message": "Email и пароль успешно проверены"
+    }
 

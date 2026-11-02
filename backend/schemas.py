@@ -17,3 +17,8 @@ class UserResponse(BaseModel):
     email: EmailStr
     phone: str | None
     is_active: bool
+
+
+class UserLogin(BaseModel):
+    email: EmailStr
+    password: str = Field(min_length=1)
