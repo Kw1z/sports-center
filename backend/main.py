@@ -1,3 +1,13 @@
+from datetime import datetime, timezone
+
+from fastapi import Depends
+from sqlalchemy import select, func
+from sqlalchemy.exc import IntegrityError
+from sqlalchemy.orm import Session
+
+from models import User, Role
+from schemas import UserRegister, UserResponse
+from security import hash_password
 
 from fastapi import FastAPI, HTTPException
 from sqlalchemy import text
@@ -44,3 +54,74 @@ def database_health():
             status_code=503,
             detail="Не удалось подключиться к PostgreSQL"
         ) from exc
+
+
+def get_db():
+    with Session(engine) as db:
+        yield db
+
+
+@app.post(
+    "/api/auth/register",
+    response_model=UserResponse,
+    status_code=201
+)
+def register_user(
+    data: UserRegister,
+    db: Session = Depends(get_db)
+):
+    # Находим роль обычного клиента
+    client_role = db.scalar(
+        select(Role).where(Role.code == "client")
+    )
+
+    if client_role is None:
+        raise HTTPException(
+            status_code=503,
+            detail="Роль клиента не настроена"
+        )
+
+    # Приводим email к единому формату
+    email = str(data.email).strip().lower()
+
+    # Проверяем, есть ли уже такой пользователь
+    existing_user = db.scalar(
+        select(User).where(
+            func.lower(User.email) == email
+        )
+    )
+
+    if existing_user is not None:
+        raise HTTPException(
+            status_code=409,
+            detail="Пользователь с таким email уже существует"
+        )
+
+    # Создаём нового пользователя
+    new_user = User(
+        role_id=client_role.id,
+        full_name=data.full_name.strip(),
+        email=email,
+        password_hash=hash_password(data.password),
+        phone=data.phone,
+        is_active=True,
+        created_at=datetime.now(timezone.utc).replace(
+            tzinfo=None
+        ),
+    )
+
+    db.add(new_user)
+
+    try:
+        db.commit()
+        db.refresh(new_user)
+
+    except IntegrityError as exc:
+        db.rollback()
+        raise HTTPException(
+            status_code=409,
+            detail="Не удалось зарегистрировать пользователя"
+        ) from exc
+
+    return new_user
+
