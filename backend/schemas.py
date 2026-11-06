@@ -1,5 +1,6 @@
 from decimal import Decimal
 from pydantic import BaseModel, EmailStr, Field, ConfigDict
+from datetime import datetime
 
 
 class UserRegister(BaseModel):
@@ -41,3 +42,17 @@ class ServiceResponse(BaseModel):
     requires_staff: bool
     price: Decimal
     currency_code: str
+
+
+class SessionResponse(BaseModel):
+    id: int
+    service_id: int
+    service_name: str
+    room_id: int
+    room_name: str
+    staff_id: int | None
+    staff_name: str | None
+    starts_at: datetime
+    ends_at: datetime
+    capacity: int
+    status: str

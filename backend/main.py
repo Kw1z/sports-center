@@ -1,19 +1,38 @@
 
+from datetime import datetime, timezone
+
+from fastapi import FastAPI, HTTPException, Depends
 from fastapi.security import (
     HTTPBearer,
     HTTPAuthorizationCredentials,
 )
-from jwt.exceptions import InvalidTokenError
 
-from datetime import datetime, timezone
-
-from fastapi import Depends
-from sqlalchemy import select, func
-from sqlalchemy.exc import IntegrityError
+from sqlalchemy import text, select, func
+from sqlalchemy.exc import SQLAlchemyError, IntegrityError
 from sqlalchemy.orm import Session
 
-from models import User, Role, Service
-from schemas import UserRegister, UserResponse, UserLogin, TokenResponse, ServiceResponse
+from jwt.exceptions import InvalidTokenError
+
+from database import engine
+
+from models import (
+    Role,
+    User,
+    Service,
+    Room,
+    Staff,
+    Session as TrainingSession,
+)
+
+from schemas import (
+    UserRegister,
+    UserResponse,
+    UserLogin,
+    TokenResponse,
+    ServiceResponse,
+    SessionResponse,
+)
+
 from security import (
     hash_password,
     verify_password,
@@ -21,11 +40,6 @@ from security import (
     decode_access_token,
 )
 
-from fastapi import FastAPI, HTTPException
-from sqlalchemy import text
-from sqlalchemy.exc import SQLAlchemyError
-
-from database import engine
 
 app = FastAPI(
     title="BluePulse API",
@@ -277,3 +291,79 @@ def get_service(
         )
 
     return service
+
+
+# Общий запрос для получения занятий
+def sessions_query():
+    return (
+        select(
+            TrainingSession.id,
+            TrainingSession.service_id,
+            Service.name.label("service_name"),
+            TrainingSession.room_id,
+            Room.name.label("room_name"),
+            TrainingSession.staff_id,
+            Staff.display_name.label("staff_name"),
+            TrainingSession.starts_at,
+            TrainingSession.ends_at,
+            TrainingSession.capacity,
+            TrainingSession.status,
+        )
+        .join(
+            Service,
+            TrainingSession.service_id == Service.id
+        )
+        .join(
+            Room,
+            TrainingSession.room_id == Room.id
+        )
+        .outerjoin(
+            Staff,
+            TrainingSession.staff_id == Staff.id
+        )
+    )
+
+
+# Получить список предстоящих занятий
+@app.get(
+    "/api/sessions",
+    response_model=list[SessionResponse]
+)
+def get_sessions(db: Session = Depends(get_db)):
+    rows = db.execute(
+        sessions_query()
+        .where(
+            TrainingSession.status == "open",
+            TrainingSession.starts_at >= datetime.now(timezone.utc)
+        )
+        .order_by(TrainingSession.starts_at)
+    ).mappings().all()
+
+    return [dict(row) for row in rows]
+
+
+# Получить одно занятие по ID
+@app.get(
+    "/api/sessions/{session_id}",
+    response_model=SessionResponse
+)
+def get_session(
+    session_id: int,
+    db: Session = Depends(get_db)
+):
+    row = db.execute(
+        sessions_query()
+        .where(
+            TrainingSession.id == session_id,
+            TrainingSession.status == "open",
+            TrainingSession.starts_at >= datetime.now(timezone.utc)
+        )
+    ).mappings().one_or_none()
+
+    if row is None:
+        raise HTTPException(
+            status_code=404,
+            detail="Занятие не найдено"
+        )
+
+    return dict(row)
