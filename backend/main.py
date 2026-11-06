@@ -12,8 +12,8 @@ from sqlalchemy import select, func
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from models import User, Role
-from schemas import UserRegister, UserResponse, UserLogin, TokenResponse
+from models import User, Role, Service
+from schemas import UserRegister, UserResponse, UserLogin, TokenResponse, ServiceResponse
 from security import (
     hash_password,
     verify_password,
@@ -245,3 +245,35 @@ def get_my_profile(
 ):
     return current_user
 
+
+@app.get(
+    "/api/services",
+    response_model=list[ServiceResponse]
+)
+def get_services(db: Session = Depends(get_db)):
+    services = db.scalars(
+        select(Service)
+        .where(Service.is_active.is_(True))
+        .order_by(Service.id)
+    ).all()
+
+    return services
+
+
+@app.get(
+    "/api/services/{service_id}",
+    response_model=ServiceResponse
+)
+def get_service(
+    service_id: int,
+    db: Session = Depends(get_db)
+):
+    service = db.get(Service, service_id)
+
+    if service is None or not service.is_active:
+        raise HTTPException(
+            status_code=404,
+            detail="Услуга не найдена"
+        )
+
+    return service

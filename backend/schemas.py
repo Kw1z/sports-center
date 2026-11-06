@@ -1,4 +1,4 @@
-
+from decimal import Decimal
 from pydantic import BaseModel, EmailStr, Field, ConfigDict
 
 
@@ -27,3 +27,17 @@ class UserLogin(BaseModel):
 class TokenResponse(BaseModel):
     access_token: str
     token_type: str = "bearer"
+
+
+class ServiceResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    code: str
+    name: str
+    description: str | None
+    booking_type: str
+    duration_minutes: int
+    requires_staff: bool
+    price: Decimal
+    currency_code: str
