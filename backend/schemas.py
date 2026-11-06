@@ -56,3 +56,20 @@ class SessionResponse(BaseModel):
     ends_at: datetime
     capacity: int
     status: str
+
+
+class BookingCreate(BaseModel):
+    session_id: int = Field(gt=0)
+
+
+class BookingResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    client_id: int
+    session_id: int
+    service_id: int
+    price_at_booking: Decimal
+    currency_at_booking: str
+    status: str
+    booked_at: datetime

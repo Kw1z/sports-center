@@ -249,12 +249,16 @@ class Booking(Base):
     )
     currency_at_booking: Mapped[str] = mapped_column(String(3))
     status: Mapped[str] = mapped_column(String(12))
+    
     booked_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=False)
+        DateTime(timezone=True)
     )
+
     cancelled_at: Mapped[datetime | None] = mapped_column(
-        DateTime(timezone=False), nullable=True
+        DateTime(timezone=True),
+        nullable=True
     )
+
 
     client: Mapped[User] = relationship(
         back_populates="bookings"
