@@ -193,17 +193,20 @@ class Session(Base):
     staff_id: Mapped[int | None] = mapped_column(
         Integer, nullable=True
     )
+    
     starts_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=False)
+        DateTime(timezone=True)
     )
     ends_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=False)
+        DateTime(timezone=True)
     )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True)
+    )
+
     capacity: Mapped[int] = mapped_column(SmallInteger)
     status: Mapped[str] = mapped_column(String(12))
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=False)
-    )
+    
 
     service: Mapped[Service] = relationship(
         back_populates="sessions",
