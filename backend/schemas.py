@@ -1,6 +1,7 @@
 from decimal import Decimal
 from pydantic import BaseModel, EmailStr, Field, ConfigDict
 from datetime import datetime
+from typing import Literal
 
 
 class UserRegister(BaseModel):
@@ -30,6 +31,7 @@ class TokenResponse(BaseModel):
     token_type: str = "bearer"
 
 
+
 class ServiceResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -42,6 +44,8 @@ class ServiceResponse(BaseModel):
     requires_staff: bool
     price: Decimal
     currency_code: str
+    is_active: bool
+
 
 
 class SessionResponse(BaseModel):
@@ -75,4 +79,93 @@ class BookingResponse(BaseModel):
     status: str
     booked_at: datetime
     cancelled_at: datetime | None = None
+
+
+class ServiceCreate(BaseModel):
+    code: str = Field(
+        min_length=1,
+        max_length=40,
+        pattern=r"^[a-z0-9_]+$"
+    )
+    name: str = Field(
+        min_length=1,
+        max_length=100
+    )
+    description: str | None = None
+    booking_type: Literal["group", "individual"]
+    duration_minutes: int = Field(ge=5, le=480)
+    requires_staff: bool
+    price: Decimal = Field(
+        ge=0,
+        max_digits=10,
+        decimal_places=2
+    )
+    currency_code: str = Field(
+        pattern=r"^[A-Z]{3}$"
+    )
+
+
+# Данные для изменения цены услуги
+class ServicePriceUpdate(BaseModel):
+    price: Decimal = Field(
+        ge=0,
+        max_digits=10,
+        decimal_places=2
+    )
+
+
+# Включение и отключение услуги
+class ServiceStatusUpdate(BaseModel):
+    is_active: bool
+
+
+# Информация о зале спортивного центра
+class RoomResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    code: str
+    name: str
+    max_capacity: int
+    is_active: bool
+
+
+# Данные для создания нового зала
+class RoomCreate(BaseModel):
+    code: str = Field(
+        min_length=1,
+        max_length=20,
+        pattern=r"^[a-z0-9_]+$"
+    )
+
+    name: str = Field(
+        min_length=1,
+        max_length=80
+    )
+
+    max_capacity: int = Field(
+        ge=1,
+        le=1000
+    )
+
+
+# Данные для изменения вместимости зала
+class RoomCapacityUpdate(BaseModel):
+    max_capacity: int = Field(
+        ge=1,
+        le=1000
+    )
+
+
+# Изменение названия зала
+class RoomNameUpdate(BaseModel):
+    name: str = Field(
+        min_length=1,
+        max_length=80
+    )
+
+
+# Включение и отключение зала
+class RoomStatusUpdate(BaseModel):
+    is_active: bool
 
