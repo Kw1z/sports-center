@@ -34,6 +34,7 @@ from schemas import (
     SessionResponse,
     BookingCreate,
     BookingResponse,
+    ServiceCreate,
 )
 
 from security import (
@@ -612,3 +613,55 @@ def check_admin_access(
         "message": "Доступ администратора подтверждён",
         "admin_id": admin.id
     }
+
+
+# Создание новой услуги администратором
+@app.post(
+    "/api/admin/services",
+    response_model=ServiceResponse,
+    status_code=201
+)
+def create_service(
+    data: ServiceCreate,
+    admin: User = Depends(get_current_admin),
+    db: Session = Depends(get_db)
+):
+    # Проверяем, существует ли услуга с таким кодом
+    existing_service = db.scalar(
+        select(Service).where(
+            Service.code == data.code
+        )
+    )
+
+    if existing_service is not None:
+        raise HTTPException(
+            status_code=409,
+            detail="Услуга с таким кодом уже существует"
+        )
+
+    # Создаём новую услугу
+    service = Service(
+        code=data.code,
+        name=data.name,
+        description=data.description,
+        booking_type=data.booking_type,
+        duration_minutes=data.duration_minutes,
+        requires_staff=data.requires_staff,
+        price=data.price,
+        currency_code=data.currency_code,
+        is_active=True
+    )
+
+    db.add(service)
+
+    try:
+        db.commit()
+        db.refresh(service)
+    except IntegrityError:
+        db.rollback()
+        raise HTTPException(
+            status_code=409,
+            detail="Не удалось создать услугу"
+        )
+
+    return service
