@@ -11,8 +11,10 @@ import { authApi, type User } from "../../../shared/api/auth";
 
 const TOKEN_KEY = "bluepulse_token";
 
+// Данные, доступные через контекст авторизации
 export type AuthContextValue = {
   user: User | null;
+  token: string | null;
   isAuthenticated: boolean;
   isLoading: boolean;
   signIn: (token: string) => Promise<void>;
@@ -27,45 +29,57 @@ type AuthProviderProps = {
 
 export const AuthProvider = ({ children }: AuthProviderProps) => {
   const [user, setUser] = useState<User | null>(null);
+  const [token, setToken] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
 
+  // Выход из аккаунта
   const signOut = useCallback(() => {
     sessionStorage.removeItem(TOKEN_KEY);
     setUser(null);
+    setToken(null);
   }, []);
 
-  const signIn = useCallback(async (token: string) => {
-    // Сначала проверяем токен на сервере.
-    const currentUser = await authApi.getMe(token);
+  // Вход в аккаунт
+  const signIn = useCallback(async (newToken: string) => {
+    // Проверяем токен через backend
+    const currentUser = await authApi.getMe(newToken);
 
-    // Сохраняем только после успешной проверки.
-    sessionStorage.setItem(TOKEN_KEY, token);
+    // Сохраняем токен после успешной проверки
+    sessionStorage.setItem(TOKEN_KEY, newToken);
+
     setUser(currentUser);
+    setToken(newToken);
   }, []);
 
+  // Восстановление авторизации после обновления страницы
   useEffect(() => {
     let cancelled = false;
 
     const restoreSession = async () => {
-      const token = sessionStorage.getItem(TOKEN_KEY);
+      const savedToken = sessionStorage.getItem(TOKEN_KEY);
 
-      if (!token) {
-        if (!cancelled) setIsLoading(false);
+      // Если токена нет, пользователь не авторизован
+      if (!savedToken) {
+        if (!cancelled) {
+          setIsLoading(false);
+        }
         return;
       }
 
       try {
-        const currentUser = await authApi.getMe(token);
+        // Проверяем сохранённый токен на сервере
+        const currentUser = await authApi.getMe(savedToken);
 
         if (!cancelled) {
           setUser(currentUser);
+          setToken(savedToken);
         }
       } catch {
         if (!cancelled) {
-          // Не удаляем токен при временной ошибке сети:
-          // без доступного сервера нельзя определить,
-          // действительно ли токен недействителен.
+          // При ошибке не удаляем сохранённый токен:
+          // сервер может быть временно недоступен
           setUser(null);
+          setToken(null);
         }
       } finally {
         if (!cancelled) {
@@ -85,6 +99,7 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
     <AuthContext.Provider
       value={{
         user,
+        token,
         isAuthenticated: user !== null,
         isLoading,
         signIn,
