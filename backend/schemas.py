@@ -100,3 +100,12 @@ class ServiceCreate(BaseModel):
     currency_code: str = Field(
         pattern=r"^[A-Z]{3}$"
     )
+
+
+# Данные для изменения цены услуги
+class ServicePriceUpdate(BaseModel):
+    price: Decimal = Field(
+        ge=0,
+        max_digits=10,
+        decimal_places=2
+    )

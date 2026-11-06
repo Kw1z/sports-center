@@ -35,6 +35,7 @@ from schemas import (
     BookingCreate,
     BookingResponse,
     ServiceCreate,
+    ServicePriceUpdate,
 )
 
 from security import (
@@ -662,6 +663,43 @@ def create_service(
         raise HTTPException(
             status_code=409,
             detail="Не удалось создать услугу"
+        )
+
+    return service
+
+
+# Изменение цены услуги администратором
+@app.patch(
+    "/api/admin/services/{service_id}/price",
+    response_model=ServiceResponse
+)
+def update_service_price(
+    service_id: int,
+    data: ServicePriceUpdate,
+    admin: User = Depends(get_current_admin),
+    db: Session = Depends(get_db)
+):
+    # 1. Находим услугу
+    service = db.get(Service, service_id)
+
+    if service is None:
+        raise HTTPException(
+            status_code=404,
+            detail="Услуга не найдена"
+        )
+
+    # 2. Устанавливаем новую цену
+    service.price = data.price
+
+    # 3. Сохраняем изменение в PostgreSQL
+    try:
+        db.commit()
+        db.refresh(service)
+    except SQLAlchemyError:
+        db.rollback()
+        raise HTTPException(
+            status_code=500,
+            detail="Не удалось обновить цену услуги"
         )
 
     return service
