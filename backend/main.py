@@ -21,6 +21,7 @@ from models import (
     Service,
     Room,
     Staff,
+    Booking,
     Session as TrainingSession,
 )
 
@@ -31,6 +32,8 @@ from schemas import (
     TokenResponse,
     ServiceResponse,
     SessionResponse,
+    BookingCreate,
+    BookingResponse,
 )
 
 from security import (
@@ -367,3 +370,215 @@ def get_session(
         )
 
     return dict(row)
+
+
+@app.post(
+    "/api/bookings",
+    response_model=BookingResponse,
+    status_code=201
+)
+def create_booking(
+    data: BookingCreate,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    # 1. Бронировать могут только клиенты
+    role_code = db.scalar(
+        select(Role.code).where(
+            Role.id == current_user.role_id
+        )
+    )
+
+    if role_code != "client":
+        raise HTTPException(
+            status_code=403,
+            detail="Бронирование доступно только клиентам"
+        )
+
+    # 2. Блокируем занятие на время бронирования
+    # Это защищает от одновременной записи сверх лимита
+    training = db.scalar(
+        select(TrainingSession)
+        .where(TrainingSession.id == data.session_id)
+        .with_for_update()
+    )
+
+    if training is None:
+        raise HTTPException(
+            status_code=404,
+            detail="Занятие не найдено"
+        )
+
+    # 3. Проверяем доступность занятия
+    if (
+        training.status != "open"
+        or training.starts_at <= datetime.now(timezone.utc)
+    ):
+        raise HTTPException(
+            status_code=409,
+            detail="Запись на занятие недоступна"
+        )
+
+    # 4. Проверяем повторную запись клиента
+    duplicate = db.scalar(
+        select(Booking.id).where(
+            Booking.client_id == current_user.id,
+            Booking.session_id == training.id,
+            Booking.status == "reserved",
+        )
+    )
+
+    if duplicate is not None:
+        raise HTTPException(
+            status_code=409,
+            detail="Вы уже записаны на это занятие"
+        )
+
+    # 5. Считаем занятые места
+    occupied = db.scalar(
+        select(func.count(Booking.id)).where(
+            Booking.session_id == training.id,
+            Booking.status == "reserved",
+        )
+    )
+
+    if occupied >= training.capacity:
+        raise HTTPException(
+            status_code=409,
+            detail="Свободных мест больше нет"
+        )
+
+    # 6. Получаем актуальную цену услуги
+    service = db.get(Service, training.service_id)
+
+    if service is None or not service.is_active:
+        raise HTTPException(
+            status_code=409,
+            detail="Услуга недоступна"
+        )
+
+    # 7. Создаём бронирование
+    booking = Booking(
+        client_id=current_user.id,
+        session_id=training.id,
+        service_id=service.id,
+        price_at_booking=service.price,
+        currency_at_booking=service.currency_code,
+        status="reserved",
+        booked_at=datetime.now(timezone.utc),
+        cancelled_at=None,
+    )
+
+    db.add(booking)
+
+    try:
+        db.commit()
+        db.refresh(booking)
+    except IntegrityError:
+        db.rollback()
+        raise HTTPException(
+            status_code=409,
+            detail="Не удалось создать бронирование"
+        )
+
+    return booking
+
+
+# Получить бронирования текущего пользователя
+@app.get(
+    "/api/bookings/my",
+    response_model=list[BookingResponse]
+)
+def get_my_bookings(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    bookings = db.scalars(
+        select(Booking)
+        .where(
+            Booking.client_id == current_user.id
+        )
+        .order_by(Booking.booked_at.desc())
+    ).all()
+
+    return bookings
+
+
+# Отмена бронирования текущим пользователем
+@app.patch(
+    "/api/bookings/{booking_id}/cancel",
+    response_model=BookingResponse
+)
+def cancel_booking(
+    booking_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    # 1. Ищем бронирование только текущего клиента
+    booking_ref = db.scalar(
+        select(Booking).where(
+            Booking.id == booking_id,
+            Booking.client_id == current_user.id
+        )
+    )
+
+    if booking_ref is None:
+        raise HTTPException(
+            status_code=404,
+            detail="Бронирование не найдено"
+        )
+
+    # 2. Блокируем занятие, чтобы изменение числа
+    # свободных мест согласовывалось с созданием записей
+    training = db.scalar(
+        select(TrainingSession)
+        .where(TrainingSession.id == booking_ref.session_id)
+        .with_for_update()
+    )
+
+    if training is None:
+        raise HTTPException(
+            status_code=404,
+            detail="Занятие не найдено"
+        )
+
+    # 3. Повторно читаем бронирование под блокировкой
+    booking = db.scalar(
+        select(Booking)
+        .where(
+            Booking.id == booking_id,
+            Booking.client_id == current_user.id
+        )
+        .with_for_update()
+        .execution_options(populate_existing=True)
+    )
+
+    if booking is None:
+        raise HTTPException(
+            status_code=404,
+            detail="Бронирование не найдено"
+        )
+
+    # 4. Проверяем, что запись ещё активна
+    if booking.status != "reserved":
+        raise HTTPException(
+            status_code=409,
+            detail="Бронирование уже нельзя отменить"
+        )
+
+    # 5. Отменять можно только до начала занятия
+    if training.starts_at <= datetime.now(timezone.utc):
+        raise HTTPException(
+            status_code=409,
+            detail="Занятие уже началось или завершилось"
+        )
+
+    # 6. Меняем статус и сохраняем время отмены
+    booking.status = "cancelled"
+    booking.cancelled_at = datetime.now(timezone.utc)
+
+    db.commit()
+    db.refresh(booking)
+
+    return booking
+
