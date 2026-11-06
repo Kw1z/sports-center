@@ -31,6 +31,7 @@ class TokenResponse(BaseModel):
     token_type: str = "bearer"
 
 
+
 class ServiceResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -43,6 +44,8 @@ class ServiceResponse(BaseModel):
     requires_staff: bool
     price: Decimal
     currency_code: str
+    is_active: bool
+
 
 
 class SessionResponse(BaseModel):
@@ -109,3 +112,8 @@ class ServicePriceUpdate(BaseModel):
         max_digits=10,
         decimal_places=2
     )
+
+
+# Включение и отключение услуги
+class ServiceStatusUpdate(BaseModel):
+    is_active: bool
