@@ -483,3 +483,22 @@ def create_booking(
 
     return booking
 
+
+# Получить бронирования текущего пользователя
+@app.get(
+    "/api/bookings/my",
+    response_model=list[BookingResponse]
+)
+def get_my_bookings(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    bookings = db.scalars(
+        select(Booking)
+        .where(
+            Booking.client_id == current_user.id
+        )
+        .order_by(Booking.booked_at.desc())
+    ).all()
+
+    return bookings
