@@ -582,3 +582,33 @@ def cancel_booking(
 
     return booking
 
+
+# Проверяем, является ли пользователь администратором
+def get_current_admin(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    role_code = db.scalar(
+        select(Role.code).where(
+            Role.id == current_user.role_id
+        )
+    )
+
+    if role_code != "admin":
+        raise HTTPException(
+            status_code=403,
+            detail="Доступ только для администратора"
+        )
+
+    return current_user
+
+
+# Проверка доступа к административному API
+@app.get("/api/admin/check")
+def check_admin_access(
+    admin: User = Depends(get_current_admin)
+):
+    return {
+        "message": "Доступ администратора подтверждён",
+        "admin_id": admin.id
+    }
