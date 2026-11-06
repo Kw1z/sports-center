@@ -117,3 +117,55 @@ class ServicePriceUpdate(BaseModel):
 # Включение и отключение услуги
 class ServiceStatusUpdate(BaseModel):
     is_active: bool
+
+
+# Информация о зале спортивного центра
+class RoomResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    code: str
+    name: str
+    max_capacity: int
+    is_active: bool
+
+
+# Данные для создания нового зала
+class RoomCreate(BaseModel):
+    code: str = Field(
+        min_length=1,
+        max_length=20,
+        pattern=r"^[a-z0-9_]+$"
+    )
+
+    name: str = Field(
+        min_length=1,
+        max_length=80
+    )
+
+    max_capacity: int = Field(
+        ge=1,
+        le=1000
+    )
+
+
+# Данные для изменения вместимости зала
+class RoomCapacityUpdate(BaseModel):
+    max_capacity: int = Field(
+        ge=1,
+        le=1000
+    )
+
+
+# Изменение названия зала
+class RoomNameUpdate(BaseModel):
+    name: str = Field(
+        min_length=1,
+        max_length=80
+    )
+
+
+# Включение и отключение зала
+class RoomStatusUpdate(BaseModel):
+    is_active: bool
+

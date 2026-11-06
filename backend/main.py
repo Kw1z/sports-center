@@ -37,6 +37,11 @@ from schemas import (
     ServiceCreate,
     ServicePriceUpdate,
     ServiceStatusUpdate,
+    RoomResponse,
+    RoomCreate,
+    RoomCapacityUpdate,
+    RoomNameUpdate,
+    RoomStatusUpdate,
 )
 
 from security import (
@@ -741,3 +746,295 @@ def update_service_status(
         )
 
     return service
+
+
+# Получение списка всех залов администратором
+@app.get(
+    "/api/admin/rooms",
+    response_model=list[RoomResponse]
+)
+def get_admin_rooms(
+    admin: User = Depends(get_current_admin),
+    db: Session = Depends(get_db)
+):
+    rooms = db.scalars(
+        select(Room).order_by(Room.id)
+    ).all()
+
+    return rooms
+
+
+# Создание нового зала администратором
+@app.post(
+    "/api/admin/rooms",
+    response_model=RoomResponse,
+    status_code=201
+)
+def create_admin_room(
+    data: RoomCreate,
+    admin: User = Depends(get_current_admin),
+    db: Session = Depends(get_db)
+):
+    # 1. Проверяем, нет ли зала с таким кодом
+    existing_room = db.scalar(
+        select(Room).where(
+            Room.code == data.code
+        )
+    )
+
+    if existing_room is not None:
+        raise HTTPException(
+            status_code=409,
+            detail="Зал с таким кодом уже существует"
+        )
+
+    # 2. Создаём новый зал
+    room = Room(
+        code=data.code,
+        name=data.name,
+        max_capacity=data.max_capacity,
+        is_active=True
+    )
+
+    db.add(room)
+
+    # 3. Сохраняем в PostgreSQL
+    try:
+        db.commit()
+        db.refresh(room)
+    except IntegrityError:
+        db.rollback()
+        raise HTTPException(
+            status_code=409,
+            detail="Не удалось создать зал"
+        )
+
+    return room
+
+
+# Изменение вместимости зала администратором
+@app.patch(
+    "/api/admin/rooms/{room_id}/capacity",
+    response_model=RoomResponse
+)
+def update_room_capacity(
+    room_id: int,
+    data: RoomCapacityUpdate,
+    admin: User = Depends(get_current_admin),
+    db: Session = Depends(get_db)
+):
+    # 1. Находим и блокируем зал
+    room = db.scalar(
+        select(Room)
+        .where(Room.id == room_id)
+        .with_for_update()
+    )
+
+    if room is None:
+        raise HTTPException(
+            status_code=404,
+            detail="Зал не найден"
+        )
+
+    # 2. Проверяем предстоящие занятия
+    conflicting_session = db.scalar(
+        select(TrainingSession.id)
+        .where(
+            TrainingSession.room_id == room.id,
+            TrainingSession.status.in_(
+                ["draft", "open"]
+            ),
+            TrainingSession.ends_at > datetime.now(
+                timezone.utc
+            ),
+            TrainingSession.capacity > data.max_capacity
+        )
+        .limit(1)
+    )
+
+    if conflicting_session is not None:
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "Нельзя уменьшить вместимость: "
+                "есть занятия с большим количеством мест"
+            )
+        )
+
+    # 3. Устанавливаем новую вместимость
+    room.max_capacity = data.max_capacity
+
+    # 4. Сохраняем изменения
+    try:
+        db.commit()
+        db.refresh(room)
+    except SQLAlchemyError:
+        db.rollback()
+        raise HTTPException(
+            status_code=500,
+            detail="Не удалось изменить вместимость зала"
+        )
+
+    return room
+
+
+# Изменение названия зала администратором
+@app.patch(
+    "/api/admin/rooms/{room_id}",
+    response_model=RoomResponse
+)
+def update_room_name(
+    room_id: int,
+    data: RoomNameUpdate,
+    admin: User = Depends(get_current_admin),
+    db: Session = Depends(get_db)
+):
+    # 1. Ищем зал
+    room = db.get(Room, room_id)
+
+    if room is None:
+        raise HTTPException(
+            status_code=404,
+            detail="Зал не найден"
+        )
+
+    # 2. Проверяем новое название
+    new_name = data.name.strip()
+
+    if not new_name:
+        raise HTTPException(
+            status_code=422,
+            detail="Название зала не может быть пустым"
+        )
+
+    # 3. Изменяем название
+    room.name = new_name
+
+    # 4. Сохраняем в PostgreSQL
+    try:
+        db.commit()
+        db.refresh(room)
+    except SQLAlchemyError:
+        db.rollback()
+        raise HTTPException(
+            status_code=500,
+            detail="Не удалось изменить название зала"
+        )
+
+    return room
+
+
+# Включение и отключение зала администратором
+@app.patch(
+    "/api/admin/rooms/{room_id}/status",
+    response_model=RoomResponse
+)
+def update_room_status(
+    room_id: int,
+    data: RoomStatusUpdate,
+    admin: User = Depends(get_current_admin),
+    db: Session = Depends(get_db)
+):
+    # 1. Находим и блокируем зал
+    room = db.scalar(
+        select(Room)
+        .where(Room.id == room_id)
+        .with_for_update()
+    )
+
+    if room is None:
+        raise HTTPException(
+            status_code=404,
+            detail="Зал не найден"
+        )
+
+    # 2. Перед отключением проверяем будущие занятия
+    if not data.is_active:
+        future_session = db.scalar(
+            select(TrainingSession.id)
+            .where(
+                TrainingSession.room_id == room.id,
+                TrainingSession.status.in_(
+                    ["draft", "open"]
+                ),
+                TrainingSession.ends_at
+                > datetime.now(timezone.utc)
+            )
+            .limit(1)
+        )
+
+        if future_session is not None:
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    "Нельзя отключить зал: "
+                    "в нём запланированы занятия"
+                )
+            )
+
+    # 3. Изменяем статус зала
+    room.is_active = data.is_active
+
+    # 4. Сохраняем в PostgreSQL
+    try:
+        db.commit()
+        db.refresh(room)
+    except SQLAlchemyError:
+        db.rollback()
+        raise HTTPException(
+            status_code=500,
+            detail="Не удалось изменить статус зала"
+        )
+
+    return room
+
+
+# Удаление неиспользованного зала администратором
+@app.delete(
+    "/api/admin/rooms/{room_id}",
+    status_code=204
+)
+def delete_admin_room(
+    room_id: int,
+    admin: User = Depends(get_current_admin),
+    db: Session = Depends(get_db)
+):
+    # 1. Находим и блокируем зал
+    room = db.scalar(
+        select(Room)
+        .where(Room.id == room_id)
+        .with_for_update()
+    )
+
+    if room is None:
+        raise HTTPException(
+            status_code=404,
+            detail="Зал не найден"
+        )
+
+    # 2. Проверяем, использовался ли зал в занятиях
+    linked_session = db.scalar(
+        select(TrainingSession.id)
+        .where(TrainingSession.room_id == room_id)
+        .limit(1)
+    )
+
+    if linked_session is not None:
+        raise HTTPException(
+            status_code=409,
+            detail="Нельзя удалить зал: к нему привязаны занятия"
+        )
+
+    # 3. Удаляем зал
+    db.delete(room)
+
+    try:
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        raise HTTPException(
+            status_code=409,
+            detail="Нельзя удалить зал: к нему привязаны занятия"
+        )
+
+    return None
