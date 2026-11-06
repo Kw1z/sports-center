@@ -502,3 +502,83 @@ def get_my_bookings(
     ).all()
 
     return bookings
+
+
+# Отмена бронирования текущим пользователем
+@app.patch(
+    "/api/bookings/{booking_id}/cancel",
+    response_model=BookingResponse
+)
+def cancel_booking(
+    booking_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    # 1. Ищем бронирование только текущего клиента
+    booking_ref = db.scalar(
+        select(Booking).where(
+            Booking.id == booking_id,
+            Booking.client_id == current_user.id
+        )
+    )
+
+    if booking_ref is None:
+        raise HTTPException(
+            status_code=404,
+            detail="Бронирование не найдено"
+        )
+
+    # 2. Блокируем занятие, чтобы изменение числа
+    # свободных мест согласовывалось с созданием записей
+    training = db.scalar(
+        select(TrainingSession)
+        .where(TrainingSession.id == booking_ref.session_id)
+        .with_for_update()
+    )
+
+    if training is None:
+        raise HTTPException(
+            status_code=404,
+            detail="Занятие не найдено"
+        )
+
+    # 3. Повторно читаем бронирование под блокировкой
+    booking = db.scalar(
+        select(Booking)
+        .where(
+            Booking.id == booking_id,
+            Booking.client_id == current_user.id
+        )
+        .with_for_update()
+        .execution_options(populate_existing=True)
+    )
+
+    if booking is None:
+        raise HTTPException(
+            status_code=404,
+            detail="Бронирование не найдено"
+        )
+
+    # 4. Проверяем, что запись ещё активна
+    if booking.status != "reserved":
+        raise HTTPException(
+            status_code=409,
+            detail="Бронирование уже нельзя отменить"
+        )
+
+    # 5. Отменять можно только до начала занятия
+    if training.starts_at <= datetime.now(timezone.utc):
+        raise HTTPException(
+            status_code=409,
+            detail="Занятие уже началось или завершилось"
+        )
+
+    # 6. Меняем статус и сохраняем время отмены
+    booking.status = "cancelled"
+    booking.cancelled_at = datetime.now(timezone.utc)
+
+    db.commit()
+    db.refresh(booking)
+
+    return booking
+
