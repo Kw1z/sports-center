@@ -1,6 +1,10 @@
 
 from datetime import datetime, timezone
 
+
+from fastapi.middleware.cors import CORSMiddleware
+
+
 from fastapi import FastAPI, HTTPException, Depends
 from fastapi.security import (
     HTTPBearer,
@@ -56,6 +60,19 @@ app = FastAPI(
     title="BluePulse API",
     description="Backend спортивного центра BluePulse",
     version="0.2.0",
+)
+
+
+# Разрешаем Frontend BluePulse обращаться к Backend
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=[
+        "http://localhost:5173",
+        "http://127.0.0.1:5173",
+    ],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 
 
