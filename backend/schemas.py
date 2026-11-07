@@ -114,6 +114,13 @@ class ServicePriceUpdate(BaseModel):
     )
 
 
+
+# Изменение названия и описания услуги
+class ServiceDetailsUpdate(BaseModel):
+    name: str = Field(min_length=1, max_length=100)
+    description: str | None = None
+
+
 # Включение и отключение услуги
 class ServiceStatusUpdate(BaseModel):
     is_active: bool

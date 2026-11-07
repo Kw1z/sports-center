@@ -46,6 +46,7 @@ from schemas import (
     RoomCapacityUpdate,
     RoomNameUpdate,
     RoomStatusUpdate,
+    ServiceDetailsUpdate,
 )
 
 from security import (
@@ -1052,6 +1053,148 @@ def delete_admin_room(
         raise HTTPException(
             status_code=409,
             detail="Нельзя удалить зал: к нему привязаны занятия"
+        )
+
+    return None
+
+
+
+# Изменение названия и описания услуги администратором
+@app.patch(
+    "/api/admin/services/{service_id}",
+    response_model=ServiceResponse
+)
+def update_admin_service_details(
+    service_id: int,
+    data: ServiceDetailsUpdate,
+    admin: User = Depends(get_current_admin),
+    db: Session = Depends(get_db)
+):
+    # 1. Находим услугу
+    service = db.get(Service, service_id)
+
+    if service is None:
+        raise HTTPException(
+            status_code=404,
+            detail="Услуга не найдена"
+        )
+
+    # 2. Проверяем название
+    new_name = data.name.strip()
+
+    if not new_name:
+        raise HTTPException(
+            status_code=422,
+            detail="Название услуги не может быть пустым"
+        )
+
+    # 3. Обновляем название и описание
+    service.name = new_name
+    service.description = (
+        data.description.strip()
+        if data.description is not None
+        else None
+    )
+
+    # 4. Сохраняем изменения
+    try:
+        db.commit()
+        db.refresh(service)
+    except SQLAlchemyError:
+        db.rollback()
+        raise HTTPException(
+            status_code=500,
+            detail="Не удалось обновить услугу"
+        )
+
+    return service
+
+
+# Просмотр всех услуг администратором
+@app.get(
+    "/api/admin/services",
+    response_model=list[ServiceResponse]
+)
+def get_admin_services(
+    admin: User = Depends(get_current_admin),
+    db: Session = Depends(get_db)
+):
+    services = db.scalars(
+        select(Service).order_by(Service.id)
+    ).all()
+
+    return services
+
+
+# Безопасное удаление услуги администратором
+@app.delete(
+    "/api/admin/services/{service_id}",
+    status_code=204
+)
+def delete_admin_service(
+    service_id: int,
+    admin: User = Depends(get_current_admin),
+    db: Session = Depends(get_db)
+):
+    # 1. Находим и блокируем услугу
+    service = db.scalar(
+        select(Service)
+        .where(Service.id == service_id)
+        .with_for_update()
+    )
+
+    if service is None:
+        raise HTTPException(
+            status_code=404,
+            detail="Услуга не найдена"
+        )
+
+    # 2. Проверяем связи с другими таблицами
+    has_links = db.scalar(
+        text("""
+            SELECT
+                EXISTS (
+                    SELECT 1 FROM sessions
+                    WHERE service_id = :service_id
+                )
+                OR EXISTS (
+                    SELECT 1 FROM bookings
+                    WHERE service_id = :service_id
+                )
+                OR EXISTS (
+                    SELECT 1 FROM staff_services
+                    WHERE service_id = :service_id
+                )
+        """),
+        {"service_id": service_id}
+    )
+
+    if has_links:
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "Нельзя удалить услугу: "
+                "она связана с занятиями, "
+                "бронированиями или сотрудниками"
+            )
+        )
+
+    # 3. Удаляем неиспользованную услугу
+    db.delete(service)
+
+    try:
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        raise HTTPException(
+            status_code=409,
+            detail="Нельзя удалить услугу: имеются связанные записи"
+        )
+    except SQLAlchemyError:
+        db.rollback()
+        raise HTTPException(
+            status_code=500,
+            detail="Не удалось удалить услугу"
         )
 
     return None
