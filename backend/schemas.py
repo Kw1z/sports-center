@@ -254,3 +254,21 @@ class AdminSessionUpdate(BaseModel):
 # Изменение статуса занятия администратором
 class AdminSessionStatusUpdate(BaseModel):
     status: Literal["draft", "open", "cancelled"]
+
+
+# Данные пользователя для администратора
+class AdminUserResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    role_id: int
+    full_name: str
+    email: str
+    phone: str | None
+    is_active: bool
+    created_at: datetime
+
+
+# Изменение активности пользователя администратором
+class AdminUserStatusUpdate(BaseModel):
+    is_active: bool

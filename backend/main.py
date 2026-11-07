@@ -56,6 +56,8 @@ from schemas import (
     AdminSessionCreate,
     AdminSessionUpdate,
     AdminSessionStatusUpdate,
+    AdminUserResponse,
+    AdminUserStatusUpdate,
 )
 
 from security import (
@@ -2353,3 +2355,70 @@ def get_admin_booking(
 
     # 3. Возвращаем данные бронирования
     return booking
+
+
+
+# Просмотр всех пользователей администратором
+@app.get(
+    "/api/admin/users",
+    response_model=list[AdminUserResponse]
+)
+def get_admin_users(
+    admin: User = Depends(get_current_admin),
+    db: Session = Depends(get_db)
+):
+    users = db.scalars(
+        select(User)
+        .order_by(User.id)
+    ).all()
+
+    return users
+
+
+
+# Блокировка и разблокировка пользователя администратором
+@app.patch(
+    "/api/admin/users/{user_id}/status",
+    response_model=AdminUserResponse
+)
+def update_admin_user_status(
+    user_id: int,
+    data: AdminUserStatusUpdate,
+    admin: User = Depends(get_current_admin),
+    db: Session = Depends(get_db)
+):
+    # 1. Находим и блокируем запись пользователя
+    user = db.scalar(
+        select(User)
+        .where(User.id == user_id)
+        .with_for_update()
+    )
+
+    if user is None:
+        raise HTTPException(
+            status_code=404,
+            detail="Пользователь не найден"
+        )
+
+    # 2. Запрещаем администратору блокировать самого себя
+    if user.id == admin.id and not data.is_active:
+        raise HTTPException(
+            status_code=409,
+            detail="Администратор не может заблокировать самого себя"
+        )
+
+    # 3. Меняем статус пользователя
+    user.is_active = data.is_active
+
+    # 4. Сохраняем изменения в PostgreSQL
+    try:
+        db.commit()
+        db.refresh(user)
+    except SQLAlchemyError:
+        db.rollback()
+        raise HTTPException(
+            status_code=500,
+            detail="Не удалось изменить статус пользователя"
+        )
+
+    return user
