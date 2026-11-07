@@ -640,6 +640,27 @@ def get_current_admin(
     return current_user
 
 
+# Проверка доступа для сотрудников
+def get_current_staff(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    role_code = db.scalar(
+        select(Role.code).where(
+            Role.id == current_user.role_id
+        )
+    )
+
+    if role_code != "staff":
+        raise HTTPException(
+            status_code=403,
+            detail="Доступ только для сотрудника"
+        )
+
+    return current_user
+
+
+
 # Проверка доступа к административному API
 @app.get("/api/admin/check")
 def check_admin_access(
@@ -2422,3 +2443,36 @@ def update_admin_user_status(
         )
 
     return user
+
+
+
+# Просмотр собственного расписания сотрудника
+@app.get(
+    "/api/staff/me/sessions",
+    response_model=list[SessionResponse]
+)
+def get_my_staff_sessions(
+    current_user: User = Depends(get_current_staff),
+    db: Session = Depends(get_db)
+):
+    # 1. Находим записи сотрудника,
+    # связанные с текущим пользователем
+    staff_ids = db.scalars(
+        select(Staff.id)
+        .where(Staff.user_id == current_user.id)
+    ).all()
+
+    if not staff_ids:
+        raise HTTPException(
+            status_code=404,
+            detail="Профиль сотрудника не связан с учётной записью"
+        )
+
+    # 2. Получаем только занятия этого сотрудника
+    rows = db.execute(
+        sessions_query()
+        .where(TrainingSession.staff_id.in_(staff_ids))
+        .order_by(TrainingSession.starts_at)
+    ).mappings().all()
+
+    return [dict(row) for row in rows]
