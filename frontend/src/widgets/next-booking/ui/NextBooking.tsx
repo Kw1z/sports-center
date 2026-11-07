@@ -1,63 +1,29 @@
 
-import { useContext, useEffect, useState } from "react";
-import { Alert, Box, CircularProgress, Typography } from "@mui/material";
+import { useEffect, useState } from "react";
+import { Box, CircularProgress, Typography } from "@mui/material";
 
-import { AuthContext } from "../../../features/authorization/model/AuthProvider";
-import { bookingsApi } from "../../../shared/api/bookings";
 import {
   sessionsApi,
   type TrainingSession,
 } from "../../../shared/api/sessions";
 
 export const NextBooking = () => {
-  const auth = useContext(AuthContext);
-
   const [session, setSession] = useState<TrainingSession | null>(null);
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
-  const token = auth?.token;
-
   useEffect(() => {
-    if (!token) {
-      setSession(null);
-      setError("");
-      return;
-    }
-
     let cancelled = false;
 
-    const loadNextBooking = async () => {
-      setLoading(true);
-      setError("");
-      setSession(null);
-
+    const loadSession = async () => {
       try {
-        const bookings = await bookingsApi.getMyBookings(token);
-
-        // Не учитываем отменённые бронирования
-        const activeBookings = bookings.filter(
-          (booking) =>
-            booking.status !== "cancelled" &&
-            booking.cancelled_at === null
-        );
-
-        const sessions = await Promise.all(
-          activeBookings.map(async (booking) => {
-            try {
-              return await sessionsApi.getById(booking.session_id);
-            } catch {
-              return null;
-            }
-          })
-        );
-
+        const sessions = await sessionsApi.getAll();
         const now = Date.now();
 
         const upcoming = sessions
           .filter(
-            (item): item is TrainingSession =>
-              item !== null &&
+            (item) =>
+              item.status === "open" &&
               new Date(item.starts_at).getTime() > now
           )
           .sort(
@@ -71,7 +37,7 @@ export const NextBooking = () => {
         }
       } catch {
         if (!cancelled) {
-          setError("Не удалось загрузить ближайшую запись");
+          setError("Не удалось загрузить занятия");
         }
       } finally {
         if (!cancelled) {
@@ -80,78 +46,125 @@ export const NextBooking = () => {
       }
     };
 
-    void loadNextBooking();
+    void loadSession();
 
     return () => {
       cancelled = true;
     };
-  }, [token]);
+  }, []);
 
-  if (auth?.isLoading) {
-    return <CircularProgress size={24} />;
-  }
-
-  if (!auth?.isAuthenticated) {
-    return null;
-  }
+  const formattedDate = session
+    ? new Date(session.starts_at).toLocaleString("ru-RU", {
+        day: "numeric",
+        month: "long",
+        hour: "2-digit",
+        minute: "2-digit",
+      })
+    : "";
 
   return (
     <Box
       sx={{
-        mt: 4,
-        p: 3,
-        bgcolor: "background.paper",
-        border: "1px solid",
-        borderColor: "divider",
-        borderRadius: 3,
+        width: "100%",
+        minHeight: 222,
+        bgcolor: "#FFFFFF",
+        borderRadius: "19px",
+        p: "22px 25px",
+        boxSizing: "border-box",
       }}
     >
-      <Typography
-        component="h2"
+      <Box
         sx={{
-          fontSize: 24,
-          fontWeight: 700,
-          color: "text.primary",
+          display: "inline-flex",
+          alignItems: "center",
+          bgcolor: "#E4F8F1",
+          color: "#148C75",
+          borderRadius: "17px",
+          px: 2,
+          minHeight: 34,
           mb: 2,
         }}
       >
-        Ближайшая запись
-      </Typography>
+        <Typography sx={{ fontSize: 13, fontWeight: 600 }}>
+          ● Ближайшее занятие
+        </Typography>
+      </Box>
 
       {loading ? (
-        <CircularProgress size={24} />
+        <Box sx={{ py: 2 }}>
+          <CircularProgress size={24} />
+        </Box>
       ) : error ? (
-        <Alert severity="error">{error}</Alert>
+        <Typography color="error" sx={{ mt: 2 }}>
+          {error}
+        </Typography>
       ) : session ? (
-        <Box>
-          <Typography sx={{ fontSize: 20, fontWeight: 600 }}>
+        <>
+          <Typography
+            sx={{
+              color: "#0A2456",
+              fontSize: 28,
+              fontWeight: 700,
+              lineHeight: 1.2,
+            }}
+          >
             {session.service_name}
           </Typography>
 
-          <Typography sx={{ mt: 1, color: "text.secondary" }}>
-            {new Date(session.starts_at).toLocaleString("ru-RU", {
-              day: "numeric",
-              month: "long",
-              year: "numeric",
-              hour: "2-digit",
-              minute: "2-digit",
-            })}
+          <Typography
+            sx={{
+              color: "#6B819E",
+              fontSize: 15,
+              mt: 1,
+            }}
+          >
+            {formattedDate}
           </Typography>
 
-          {session.staff_name && (
-            <Typography sx={{ mt: 1, color: "text.secondary" }}>
-              Тренер: {session.staff_name}
-            </Typography>
-          )}
+          <Box
+            sx={{
+              mt: 2,
+              width: "100%",
+              height: 7,
+              bgcolor: "#EAF3FF",
+              borderRadius: 2,
+            }}
+          />
 
-          <Typography sx={{ mt: 1, color: "text.secondary" }}>
-            Зал: {session.room_name}
+          <Typography
+            sx={{
+              mt: 1.5,
+              color: "#176BFF",
+              fontSize: 14,
+              fontWeight: 600,
+            }}
+          >
+            {session.room_name}
           </Typography>
-        </Box>
+        </>
       ) : (
-        <Typography color="text.secondary">
-          У вас пока нет предстоящих записей.
-        </Typography>
+        <>
+          <Typography
+            sx={{
+              color: "#0A2456",
+              fontSize: 22,
+              fontWeight: 700,
+              mt: 1,
+            }}
+          >
+            Пока нет занятий
+          </Typography>
+
+          <Typography
+            sx={{
+              color: "#6B819E",
+              fontSize: 15,
+              mt: 1,
+            }}
+          >
+            Новые занятия скоро появятся.
+          </Typography>
+        </>
       )}
     </Box>
   );
