@@ -58,6 +58,7 @@ from schemas import (
     AdminSessionStatusUpdate,
     AdminUserResponse,
     AdminUserStatusUpdate,
+    AdminDashboardResponse,
 )
 
 from security import (
@@ -2476,3 +2477,77 @@ def get_my_staff_sessions(
     ).mappings().all()
 
     return [dict(row) for row in rows]
+
+
+
+# Статистика для административной панели
+@app.get(
+    "/api/admin/dashboard",
+    response_model=AdminDashboardResponse
+)
+def get_admin_dashboard(
+    admin: User = Depends(get_current_admin),
+    db: Session = Depends(get_db)
+):
+    # 1. Пользователи
+    total_users = db.scalar(
+        select(func.count()).select_from(User)
+    )
+
+    active_users = db.scalar(
+        select(func.count())
+        .select_from(User)
+        .where(User.is_active.is_(True))
+    )
+
+    # 2. Сотрудники
+    total_staff = db.scalar(
+        select(func.count()).select_from(Staff)
+    )
+
+    active_staff = db.scalar(
+        select(func.count())
+        .select_from(Staff)
+        .where(Staff.is_active.is_(True))
+    )
+
+    # 3. Занятия
+    total_sessions = db.scalar(
+        select(func.count()).select_from(TrainingSession)
+    )
+
+    open_sessions = db.scalar(
+        select(func.count())
+        .select_from(TrainingSession)
+        .where(TrainingSession.status == "open")
+    )
+
+    # 4. Бронирования
+    total_bookings = db.scalar(
+        select(func.count()).select_from(Booking)
+    )
+
+    reserved_bookings = db.scalar(
+        select(func.count())
+        .select_from(Booking)
+        .where(Booking.status == "reserved")
+    )
+
+    cancelled_bookings = db.scalar(
+        select(func.count())
+        .select_from(Booking)
+        .where(Booking.status == "cancelled")
+    )
+
+    # 5. Возвращаем показатели
+    return {
+        "total_users": total_users,
+        "active_users": active_users,
+        "total_staff": total_staff,
+        "active_staff": active_staff,
+        "total_sessions": total_sessions,
+        "open_sessions": open_sessions,
+        "total_bookings": total_bookings,
+        "reserved_bookings": reserved_bookings,
+        "cancelled_bookings": cancelled_bookings
+    }
