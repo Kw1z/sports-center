@@ -8,6 +8,7 @@ import {
 
 import { HomePage } from "./pages/home/ui/HomePage";
 import { AboutPage } from "./pages/about/ui/AboutPage";
+import { SchedulePage } from "./pages/schedule/ui/SchedulePage";
 import { LoginPage } from "./pages/authorization/ui/LoginPage";
 import { RegisterPage } from "./pages/authorization/ui/RegisterPage";
 import { ProtectedRoute } from "./features/authorization/ui/ProtectedRoute";
@@ -21,6 +22,9 @@ function App() {
 
         {/* О клубе */}
         <Route path="/about" element={<AboutPage />} />
+
+        {/* Расписание занятий */}
+        <Route path="/schedule" element={<SchedulePage />} />
 
         {/* Авторизация и регистрация */}
         <Route path="/login" element={<LoginPage />} />
@@ -42,7 +46,7 @@ function App() {
           }
         />
 
-        {/* Неизвестные адреса */}
+        {/* Неизвестные маршруты */}
         <Route
           path="*"
           element={<Navigate to="/" replace />}
