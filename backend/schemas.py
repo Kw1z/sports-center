@@ -272,3 +272,19 @@ class AdminUserResponse(BaseModel):
 # Изменение активности пользователя администратором
 class AdminUserStatusUpdate(BaseModel):
     is_active: bool
+
+
+# Основные показатели административной панели
+class AdminDashboardResponse(BaseModel):
+    total_users: int
+    active_users: int
+
+    total_staff: int
+    active_staff: int
+
+    total_sessions: int
+    open_sessions: int
+
+    total_bookings: int
+    reserved_bookings: int
+    cancelled_bookings: int
