@@ -176,3 +176,47 @@ class RoomNameUpdate(BaseModel):
 class RoomStatusUpdate(BaseModel):
     is_active: bool
 
+
+# Данные сотрудника для административного API
+class StaffResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    user_id: int | None
+    display_name: str
+    position: str
+    is_active: bool
+
+
+# Данные для создания нового сотрудника
+class StaffCreate(BaseModel):
+    display_name: str = Field(
+        min_length=1,
+        max_length=100
+    )
+    position: str = Field(
+        min_length=1,
+        max_length=100
+    )
+
+
+# Изменение имени и должности сотрудника
+class StaffUpdate(BaseModel):
+    display_name: str = Field(
+        min_length=1,
+        max_length=100
+    )
+    position: str = Field(
+        min_length=1,
+        max_length=100
+    )
+
+
+# Назначение услуги сотруднику
+class StaffServiceAssign(BaseModel):
+    service_id: int = Field(gt=0)
+
+
+# Изменение активности сотрудника
+class StaffStatusUpdate(BaseModel):
+    is_active: bool

@@ -27,6 +27,7 @@ from models import (
     Staff,
     Booking,
     Session as TrainingSession,
+    StaffService,
 )
 
 from schemas import (
@@ -47,6 +48,11 @@ from schemas import (
     RoomNameUpdate,
     RoomStatusUpdate,
     ServiceDetailsUpdate,
+    StaffResponse,
+    StaffCreate,
+    StaffUpdate,
+    StaffServiceAssign,
+    StaffStatusUpdate,
 )
 
 from security import (
@@ -1195,6 +1201,444 @@ def delete_admin_service(
         raise HTTPException(
             status_code=500,
             detail="Не удалось удалить услугу"
+        )
+
+    return None
+
+
+# Просмотр всех сотрудников администратором
+@app.get(
+    "/api/admin/staff",
+    response_model=list[StaffResponse]
+)
+def get_admin_staff(
+    admin: User = Depends(get_current_admin),
+    db: Session = Depends(get_db)
+):
+    employees = db.scalars(
+        select(Staff).order_by(Staff.id)
+    ).all()
+
+    return employees
+
+
+# Создание нового сотрудника администратором
+@app.post(
+    "/api/admin/staff",
+    response_model=StaffResponse,
+    status_code=201
+)
+def create_admin_staff(
+    data: StaffCreate,
+    admin: User = Depends(get_current_admin),
+    db: Session = Depends(get_db)
+):
+    # 1. Убираем лишние пробелы
+    name = data.display_name.strip()
+    position = data.position.strip()
+
+    # 2. Проверяем данные
+    if not name or not position:
+        raise HTTPException(
+            status_code=422,
+            detail="Имя и должность не могут быть пустыми"
+        )
+
+    # 3. Создаём сотрудника
+    employee = Staff(
+        user_id=None,
+        display_name=name,
+        position=position,
+        is_active=True
+    )
+
+    # 4. Сохраняем в PostgreSQL
+    db.add(employee)
+
+    try:
+        db.commit()
+        db.refresh(employee)
+    except SQLAlchemyError:
+        db.rollback()
+        raise HTTPException(
+            status_code=500,
+            detail="Не удалось создать сотрудника"
+        )
+
+    return employee
+
+
+# Редактирование сотрудника администратором
+@app.patch(
+    "/api/admin/staff/{staff_id}",
+    response_model=StaffResponse
+)
+def update_admin_staff(
+    staff_id: int,
+    data: StaffUpdate,
+    admin: User = Depends(get_current_admin),
+    db: Session = Depends(get_db)
+):
+    # 1. Находим сотрудника
+    employee = db.get(Staff, staff_id)
+
+    if employee is None:
+        raise HTTPException(
+            status_code=404,
+            detail="Сотрудник не найден"
+        )
+
+    # 2. Убираем лишние пробелы
+    new_name = data.display_name.strip()
+    new_position = data.position.strip()
+
+    # 3. Проверяем данные
+    if not new_name or not new_position:
+        raise HTTPException(
+            status_code=422,
+            detail="Имя и должность не могут быть пустыми"
+        )
+
+    # 4. Обновляем сотрудника
+    employee.display_name = new_name
+    employee.position = new_position
+
+    # 5. Сохраняем в PostgreSQL
+    try:
+        db.commit()
+        db.refresh(employee)
+    except SQLAlchemyError:
+        db.rollback()
+        raise HTTPException(
+            status_code=500,
+            detail="Не удалось изменить данные сотрудника"
+        )
+
+    return employee
+
+
+# Назначение услуги сотруднику администратором
+@app.post(
+    "/api/admin/staff/{staff_id}/services",
+    status_code=201
+)
+def assign_admin_staff_service(
+    staff_id: int,
+    data: StaffServiceAssign,
+    admin: User = Depends(get_current_admin),
+    db: Session = Depends(get_db)
+):
+    # 1. Проверяем сотрудника
+    employee = db.get(Staff, staff_id)
+
+    if employee is None:
+        raise HTTPException(
+            status_code=404,
+            detail="Сотрудник не найден"
+        )
+
+    if not employee.is_active:
+        raise HTTPException(
+            status_code=409,
+            detail="Нельзя назначить услугу неактивному сотруднику"
+        )
+
+    # 2. Проверяем услугу
+    service = db.get(Service, data.service_id)
+
+    if service is None:
+        raise HTTPException(
+            status_code=404,
+            detail="Услуга не найдена"
+        )
+
+    if not service.is_active:
+        raise HTTPException(
+            status_code=409,
+            detail="Нельзя назначить неактивную услугу"
+        )
+
+    # 3. Проверяем, нет ли такого назначения
+    existing_link = db.get(
+        StaffService,
+        (staff_id, data.service_id)
+    )
+
+    if existing_link is not None:
+        raise HTTPException(
+            status_code=409,
+            detail="Эта услуга уже назначена сотруднику"
+        )
+
+    # 4. Создаём связь сотрудника с услугой
+    link = StaffService(
+        staff_id=staff_id,
+        service_id=data.service_id
+    )
+
+    db.add(link)
+
+    # 5. Сохраняем изменения
+    try:
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        raise HTTPException(
+            status_code=409,
+            detail="Не удалось создать назначение: конфликт данных"
+        )
+    except SQLAlchemyError:
+        db.rollback()
+        raise HTTPException(
+            status_code=500,
+            detail="Не удалось назначить услугу сотруднику"
+        )
+
+    return {
+        "staff_id": staff_id,
+        "service_id": data.service_id
+    }
+
+
+# Просмотр услуг конкретного сотрудника администратором
+@app.get(
+    "/api/admin/staff/{staff_id}/services",
+    response_model=list[ServiceResponse]
+)
+def get_admin_staff_services(
+    staff_id: int,
+    admin: User = Depends(get_current_admin),
+    db: Session = Depends(get_db)
+):
+    # 1. Проверяем существование сотрудника
+    employee = db.get(Staff, staff_id)
+
+    if employee is None:
+        raise HTTPException(
+            status_code=404,
+            detail="Сотрудник не найден"
+        )
+
+    # 2. Получаем назначенные сотруднику услуги
+    services = db.scalars(
+        select(Service)
+        .join(
+            StaffService,
+            StaffService.service_id == Service.id
+        )
+        .where(StaffService.staff_id == staff_id)
+        .order_by(Service.id)
+    ).all()
+
+    return services
+
+
+# Удаление назначения услуги сотруднику
+@app.delete(
+    "/api/admin/staff/{staff_id}/services/{service_id}",
+    status_code=204
+)
+def delete_admin_staff_service(
+    staff_id: int,
+    service_id: int,
+    admin: User = Depends(get_current_admin),
+    db: Session = Depends(get_db)
+):
+    # 1. Находим и блокируем назначение
+    link = db.scalar(
+        select(StaffService)
+        .where(
+            StaffService.staff_id == staff_id,
+            StaffService.service_id == service_id
+        )
+        .with_for_update()
+    )
+
+    if link is None:
+        raise HTTPException(
+            status_code=404,
+            detail="Назначение услуги сотруднику не найдено"
+        )
+
+    # 2. Проверяем, есть ли связанные занятия
+    linked_session = db.scalar(
+        select(TrainingSession.id)
+        .where(
+            TrainingSession.staff_id == staff_id,
+            TrainingSession.service_id == service_id
+        )
+        .limit(1)
+    )
+
+    if linked_session is not None:
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "Нельзя удалить назначение: "
+                "сотрудник уже связан с занятиями "
+                "по этой услуге"
+            )
+        )
+
+    # 3. Удаляем назначение
+    db.delete(link)
+
+    try:
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        raise HTTPException(
+            status_code=409,
+            detail="Нельзя удалить назначение: имеются связанные занятия"
+        )
+    except SQLAlchemyError:
+        db.rollback()
+        raise HTTPException(
+            status_code=500,
+            detail="Не удалось удалить назначение услуги"
+        )
+
+    return None
+
+
+
+# Включение и отключение сотрудника администратором
+@app.patch(
+    "/api/admin/staff/{staff_id}/status",
+    response_model=StaffResponse
+)
+def update_admin_staff_status(
+    staff_id: int,
+    data: StaffStatusUpdate,
+    admin: User = Depends(get_current_admin),
+    db: Session = Depends(get_db)
+):
+    # 1. Находим сотрудника
+    employee = db.scalar(
+        select(Staff)
+        .where(Staff.id == staff_id)
+        .with_for_update()
+    )
+
+    if employee is None:
+        raise HTTPException(
+            status_code=404,
+            detail="Сотрудник не найден"
+        )
+
+    # 2. При отключении проверяем занятия
+    if employee.is_active and not data.is_active:
+        now = datetime.now(timezone.utc)
+
+        existing_session = db.scalar(
+            select(TrainingSession.id)
+            .where(
+                TrainingSession.staff_id == staff_id,
+                TrainingSession.ends_at > now,
+                TrainingSession.status.in_(["draft", "open"])
+            )
+            .limit(1)
+        )
+
+        if existing_session is not None:
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    "Нельзя отключить сотрудника: "
+                    "у него есть предстоящие или "
+                    "незавершённые занятия"
+                )
+            )
+
+    # 3. Меняем статус сотрудника
+    employee.is_active = data.is_active
+
+    # 4. Сохраняем изменения
+    try:
+        db.commit()
+        db.refresh(employee)
+    except SQLAlchemyError:
+        db.rollback()
+        raise HTTPException(
+            status_code=500,
+            detail="Не удалось изменить статус сотрудника"
+        )
+
+    return employee
+
+
+# Безопасное удаление сотрудника администратором
+@app.delete(
+    "/api/admin/staff/{staff_id}",
+    status_code=204
+)
+def delete_admin_staff(
+    staff_id: int,
+    admin: User = Depends(get_current_admin),
+    db: Session = Depends(get_db)
+):
+    # 1. Находим и блокируем сотрудника
+    employee = db.scalar(
+        select(Staff)
+        .where(Staff.id == staff_id)
+        .with_for_update()
+    )
+
+    if employee is None:
+        raise HTTPException(
+            status_code=404,
+            detail="Сотрудник не найден"
+        )
+
+    # 2. Проверяем связь с учётной записью
+    if employee.user_id is not None:
+        raise HTTPException(
+            status_code=409,
+            detail="Нельзя удалить сотрудника, связанного с пользователем"
+        )
+
+    # 3. Проверяем все занятия сотрудника
+    existing_session = db.scalar(
+        select(TrainingSession.id)
+        .where(TrainingSession.staff_id == staff_id)
+        .limit(1)
+    )
+
+    if existing_session is not None:
+        raise HTTPException(
+            status_code=409,
+            detail="Нельзя удалить сотрудника: у него есть занятия"
+        )
+
+    # 4. Проверяем назначенные услуги
+    existing_link = db.scalar(
+        select(StaffService.staff_id)
+        .where(StaffService.staff_id == staff_id)
+        .limit(1)
+    )
+
+    if existing_link is not None:
+        raise HTTPException(
+            status_code=409,
+            detail="Нельзя удалить сотрудника: ему назначены услуги"
+        )
+
+    # 5. Удаляем сотрудника
+    db.delete(employee)
+
+    try:
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        raise HTTPException(
+            status_code=409,
+            detail="Нельзя удалить сотрудника: имеются связанные данные"
+        )
+    except SQLAlchemyError:
+        db.rollback()
+        raise HTTPException(
+            status_code=500,
+            detail="Не удалось удалить сотрудника"
         )
 
     return None
