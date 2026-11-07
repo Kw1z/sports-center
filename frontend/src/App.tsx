@@ -1,10 +1,4 @@
-
-import {
-  BrowserRouter,
-  Route,
-  Routes,
-  Navigate,
-} from "react-router-dom";
+import { BrowserRouter, Route, Routes, Navigate } from "react-router-dom";
 
 import { HomePage } from "./pages/home/ui/HomePage";
 import { AboutPage } from "./pages/about/ui/AboutPage";
@@ -13,6 +7,7 @@ import { LoginPage } from "./pages/authorization/ui/LoginPage";
 import { RegisterPage } from "./pages/authorization/ui/RegisterPage";
 import { ProtectedRoute } from "./features/authorization/ui/ProtectedRoute";
 import { BookingsPage } from "./pages/bookings/ui/BookingsPage";
+import { CatalogPage } from "./pages/catalog/ui/CatalogPage";
 
 function App() {
   return (
@@ -20,6 +15,9 @@ function App() {
       <Routes>
         {/* Главная страница */}
         <Route path="/" element={<HomePage />} />
+
+        {/* Каталог услуг */}
+        <Route path="/catalog" element={<CatalogPage />} />
 
         {/* О клубе */}
         <Route path="/about" element={<AboutPage />} />
@@ -42,8 +40,7 @@ function App() {
               <div style={{ padding: 40 }}>
                 <h1>Личный кабинет BluePulse</h1>
                 <p>
-                  Эта страница доступна только
-                  авторизованным пользователям.
+                  Эта страница доступна только авторизованным пользователям.
                 </p>
               </div>
             </ProtectedRoute>
@@ -51,10 +48,7 @@ function App() {
         />
 
         {/* Неизвестные маршруты */}
-        <Route
-          path="*"
-          element={<Navigate to="/" replace />}
-        />
+        <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </BrowserRouter>
   );
