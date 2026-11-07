@@ -1,5 +1,5 @@
 from decimal import Decimal
-from pydantic import BaseModel, EmailStr, Field, ConfigDict
+from pydantic import BaseModel, EmailStr, Field, ConfigDict, AwareDatetime
 from datetime import datetime
 from typing import Literal
 
@@ -220,3 +220,37 @@ class StaffServiceAssign(BaseModel):
 # Изменение активности сотрудника
 class StaffStatusUpdate(BaseModel):
     is_active: bool
+
+
+# Создание занятия администратором
+class AdminSessionCreate(BaseModel):
+    service_id: int = Field(gt=0)
+    room_id: int = Field(gt=0)
+    staff_id: int | None = Field(default=None, gt=0)
+
+    starts_at: AwareDatetime
+    ends_at: AwareDatetime
+
+    capacity: int = Field(ge=1, le=1000)
+
+    status: Literal["draft", "open"] = "draft"
+
+
+# Редактирование занятия администратором
+class AdminSessionUpdate(BaseModel):
+    room_id: int | None = Field(default=None, gt=0)
+    staff_id: int | None = Field(default=None, gt=0)
+
+    starts_at: AwareDatetime | None = None
+    ends_at: AwareDatetime | None = None
+
+    capacity: int | None = Field(
+        default=None,
+        ge=1,
+        le=1000
+    )
+
+
+# Изменение статуса занятия администратором
+class AdminSessionStatusUpdate(BaseModel):
+    status: Literal["draft", "open", "cancelled"]

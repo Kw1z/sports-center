@@ -53,6 +53,9 @@ from schemas import (
     StaffUpdate,
     StaffServiceAssign,
     StaffStatusUpdate,
+    AdminSessionCreate,
+    AdminSessionUpdate,
+    AdminSessionStatusUpdate,
 )
 
 from security import (
@@ -1639,6 +1642,586 @@ def delete_admin_staff(
         raise HTTPException(
             status_code=500,
             detail="Не удалось удалить сотрудника"
+        )
+
+    return None
+
+
+# Создание занятия администратором
+@app.post(
+    "/api/admin/sessions",
+    status_code=201
+)
+def create_admin_session(
+    data: AdminSessionCreate,
+    admin: User = Depends(get_current_admin),
+    db: Session = Depends(get_db)
+):
+    # 1. Проверяем время занятия
+    now = datetime.now(timezone.utc)
+
+    if data.starts_at <= now:
+        raise HTTPException(
+            status_code=422,
+            detail="Начало занятия должно быть в будущем"
+        )
+
+    if data.ends_at <= data.starts_at:
+        raise HTTPException(
+            status_code=422,
+            detail="Окончание занятия должно быть позже начала"
+        )
+
+    # 2. Проверяем услугу
+    service = db.get(Service, data.service_id)
+
+    if service is None:
+        raise HTTPException(
+            status_code=404,
+            detail="Услуга не найдена"
+        )
+
+    if not service.is_active:
+        raise HTTPException(
+            status_code=409,
+            detail="Нельзя создать занятие для неактивной услуги"
+        )
+
+    # 3. Проверяем продолжительность
+    duration_minutes = (
+        data.ends_at - data.starts_at
+    ).total_seconds() / 60
+
+    if duration_minutes != service.duration_minutes:
+        raise HTTPException(
+            status_code=422,
+            detail="Продолжительность занятия не соответствует услуге"
+        )
+
+    # 4. Проверяем зал
+    room = db.get(Room, data.room_id)
+
+    if room is None:
+        raise HTTPException(
+            status_code=404,
+            detail="Зал не найден"
+        )
+
+    if not room.is_active:
+        raise HTTPException(
+            status_code=409,
+            detail="Нельзя использовать неактивный зал"
+        )
+
+    if data.capacity > room.max_capacity:
+        raise HTTPException(
+            status_code=422,
+            detail="Вместимость занятия превышает вместимость зала"
+        )
+
+    # 5. Проверяем сотрудника
+    if data.staff_id is None:
+        if service.requires_staff:
+            raise HTTPException(
+                status_code=422,
+                detail="Для этой услуги необходимо назначить сотрудника"
+            )
+    else:
+        employee = db.get(Staff, data.staff_id)
+
+        if employee is None:
+            raise HTTPException(
+                status_code=404,
+                detail="Сотрудник не найден"
+            )
+
+        if not employee.is_active:
+            raise HTTPException(
+                status_code=409,
+                detail="Нельзя назначить неактивного сотрудника"
+            )
+
+        assignment = db.get(
+            StaffService,
+            (data.staff_id, data.service_id)
+        )
+
+        if assignment is None:
+            raise HTTPException(
+                status_code=422,
+                detail="Сотруднику не назначена выбранная услуга"
+            )
+
+    # 6. Создаём занятие
+    new_session = TrainingSession(
+        service_id=data.service_id,
+        room_id=data.room_id,
+        staff_id=data.staff_id,
+        starts_at=data.starts_at,
+        ends_at=data.ends_at,
+        capacity=data.capacity,
+        status=data.status,
+        created_at=now
+    )
+
+    db.add(new_session)
+
+    # 7. Сохраняем в PostgreSQL
+    try:
+        db.commit()
+        db.refresh(new_session)
+    except IntegrityError:
+        db.rollback()
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "Не удалось создать занятие: "
+                "конфликт расписания или ограничений базы данных"
+            )
+        )
+    except SQLAlchemyError:
+        db.rollback()
+        raise HTTPException(
+            status_code=500,
+            detail="Не удалось создать занятие"
+        )
+
+    return {
+        "id": new_session.id,
+        "service_id": new_session.service_id,
+        "room_id": new_session.room_id,
+        "staff_id": new_session.staff_id,
+        "starts_at": new_session.starts_at,
+        "ends_at": new_session.ends_at,
+        "capacity": new_session.capacity,
+        "status": new_session.status
+    }
+
+
+# Просмотр всех занятий администратором
+@app.get(
+    "/api/admin/sessions",
+    response_model=list[SessionResponse]
+)
+def get_admin_sessions(
+    admin: User = Depends(get_current_admin),
+    db: Session = Depends(get_db)
+):
+    rows = db.execute(
+        sessions_query()
+        .order_by(TrainingSession.starts_at)
+    ).mappings().all()
+
+    return [dict(row) for row in rows]
+
+
+
+# Редактирование занятия администратором
+@app.patch(
+    "/api/admin/sessions/{session_id}",
+    response_model=SessionResponse
+)
+def update_admin_session(
+    session_id: int,
+    data: AdminSessionUpdate,
+    admin: User = Depends(get_current_admin),
+    db: Session = Depends(get_db)
+):
+    # 1. Находим и блокируем занятие
+    lesson = db.scalar(
+        select(TrainingSession)
+        .where(TrainingSession.id == session_id)
+        .with_for_update()
+    )
+
+    if lesson is None:
+        raise HTTPException(
+            status_code=404,
+            detail="Занятие не найдено"
+        )
+
+    # 2. Проверяем статус занятия
+    if lesson.status not in ("draft", "open"):
+        raise HTTPException(
+            status_code=409,
+            detail="Нельзя редактировать отменённое или завершённое занятие"
+        )
+
+    now = datetime.now(timezone.utc)
+
+    if lesson.starts_at <= now:
+        raise HTTPException(
+            status_code=409,
+            detail="Нельзя редактировать начавшееся занятие"
+        )
+
+    # 3. Проверяем существующие бронирования
+    existing_booking = db.scalar(
+        select(Booking.id)
+        .where(Booking.session_id == session_id)
+        .limit(1)
+    )
+
+    if existing_booking is not None:
+        raise HTTPException(
+            status_code=409,
+            detail="Нельзя редактировать занятие, у которого есть история бронирований"
+        )
+
+    # 4. Получаем только переданные поля
+    changes = data.model_dump(exclude_unset=True)
+
+    if not changes:
+        raise HTTPException(
+            status_code=422,
+            detail="Не указаны поля для изменения"
+        )
+
+    # Обязательные поля нельзя заменить на null
+    for field_name in (
+        "room_id",
+        "starts_at",
+        "ends_at",
+        "capacity"
+    ):
+        if field_name in changes and changes[field_name] is None:
+            raise HTTPException(
+                status_code=422,
+                detail=f"Поле {field_name} не может быть null"
+            )
+
+    new_room_id = changes.get("room_id", lesson.room_id)
+    new_staff_id = changes.get("staff_id", lesson.staff_id)
+    new_starts_at = changes.get("starts_at", lesson.starts_at)
+    new_ends_at = changes.get("ends_at", lesson.ends_at)
+    new_capacity = changes.get("capacity", lesson.capacity)
+
+    # 5. Проверяем время
+    if new_starts_at <= now:
+        raise HTTPException(
+            status_code=422,
+            detail="Начало занятия должно быть в будущем"
+        )
+
+    if new_ends_at <= new_starts_at:
+        raise HTTPException(
+            status_code=422,
+            detail="Окончание занятия должно быть позже начала"
+        )
+
+    # 6. Проверяем услугу
+    service = db.get(Service, lesson.service_id)
+
+    if service is None:
+        raise HTTPException(
+            status_code=404,
+            detail="Услуга не найдена"
+        )
+
+    if not service.is_active:
+        raise HTTPException(
+            status_code=409,
+            detail="Услуга неактивна"
+        )
+
+    duration_minutes = (
+        new_ends_at - new_starts_at
+    ).total_seconds() / 60
+
+    if duration_minutes != service.duration_minutes:
+        raise HTTPException(
+            status_code=422,
+            detail="Продолжительность занятия не соответствует услуге"
+        )
+
+    # 7. Проверяем зал
+    room = db.get(Room, new_room_id)
+
+    if room is None:
+        raise HTTPException(
+            status_code=404,
+            detail="Зал не найден"
+        )
+
+    if not room.is_active:
+        raise HTTPException(
+            status_code=409,
+            detail="Зал неактивен"
+        )
+
+    if new_capacity > room.max_capacity:
+        raise HTTPException(
+            status_code=422,
+            detail="Вместимость занятия превышает вместимость зала"
+        )
+
+    # 8. Проверяем сотрудника
+    if new_staff_id is None:
+        if service.requires_staff:
+            raise HTTPException(
+                status_code=422,
+                detail="Для этой услуги необходимо назначить сотрудника"
+            )
+    else:
+        employee = db.get(Staff, new_staff_id)
+
+        if employee is None:
+            raise HTTPException(
+                status_code=404,
+                detail="Сотрудник не найден"
+            )
+
+        if not employee.is_active:
+            raise HTTPException(
+                status_code=409,
+                detail="Сотрудник неактивен"
+            )
+
+        assignment = db.get(
+            StaffService,
+            (new_staff_id, lesson.service_id)
+        )
+
+        if assignment is None:
+            raise HTTPException(
+                status_code=422,
+                detail="Сотруднику не назначена эта услуга"
+            )
+
+    # 9. Обновляем занятие
+    lesson.room_id = new_room_id
+    lesson.staff_id = new_staff_id
+    lesson.starts_at = new_starts_at
+    lesson.ends_at = new_ends_at
+    lesson.capacity = new_capacity
+
+    try:
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        raise HTTPException(
+            status_code=409,
+            detail="Конфликт расписания или ограничений базы данных"
+        )
+    except SQLAlchemyError:
+        db.rollback()
+        raise HTTPException(
+            status_code=500,
+            detail="Не удалось изменить занятие"
+        )
+
+    # 10. Возвращаем обновлённое занятие
+    row = db.execute(
+        sessions_query()
+        .where(TrainingSession.id == session_id)
+    ).mappings().first()
+
+    return dict(row)
+
+
+
+
+# Изменение статуса занятия администратором
+@app.patch(
+    "/api/admin/sessions/{session_id}/status",
+    response_model=SessionResponse
+)
+def update_admin_session_status(
+    session_id: int,
+    data: AdminSessionStatusUpdate,
+    admin: User = Depends(get_current_admin),
+    db: Session = Depends(get_db)
+):
+    # 1. Находим и блокируем занятие
+    lesson = db.scalar(
+        select(TrainingSession)
+        .where(TrainingSession.id == session_id)
+        .with_for_update()
+    )
+
+    if lesson is None:
+        raise HTTPException(
+            status_code=404,
+            detail="Занятие не найдено"
+        )
+
+    # 2. Запрещаем изменения отменённых и завершённых занятий
+    if lesson.status in ("cancelled", "completed"):
+        raise HTTPException(
+            status_code=409,
+            detail="Нельзя изменить статус отменённого или завершённого занятия"
+        )
+
+    # Если статус уже такой, ничего не меняем
+    if lesson.status == data.status:
+        row = db.execute(
+            sessions_query()
+            .where(TrainingSession.id == session_id)
+        ).mappings().first()
+
+        return dict(row)
+
+    # 3. Проверяем дату занятия
+    now = datetime.now(timezone.utc)
+
+    if lesson.starts_at <= now:
+        raise HTTPException(
+            status_code=409,
+            detail="Нельзя изменить статус начавшегося занятия"
+        )
+
+    # 4. Проверяем историю бронирований
+    existing_booking = db.scalar(
+        select(Booking.id)
+        .where(Booking.session_id == session_id)
+        .limit(1)
+    )
+
+    if existing_booking is not None:
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "Нельзя изменить статус занятия, "
+                "у которого есть история бронирований"
+            )
+        )
+
+    # 5. При публикации проверяем готовность занятия
+    if data.status == "open":
+        service = db.get(Service, lesson.service_id)
+        room = db.get(Room, lesson.room_id)
+
+        if service is None or not service.is_active:
+            raise HTTPException(
+                status_code=409,
+                detail="Услуга недоступна"
+            )
+
+        if room is None or not room.is_active:
+            raise HTTPException(
+                status_code=409,
+                detail="Зал недоступен"
+            )
+
+        if lesson.capacity > room.max_capacity:
+            raise HTTPException(
+                status_code=422,
+                detail="Вместимость занятия превышает вместимость зала"
+            )
+
+        if lesson.staff_id is None:
+            if service.requires_staff:
+                raise HTTPException(
+                    status_code=422,
+                    detail="Для этой услуги требуется сотрудник"
+                )
+        else:
+            employee = db.get(Staff, lesson.staff_id)
+
+            if employee is None or not employee.is_active:
+                raise HTTPException(
+                    status_code=409,
+                    detail="Сотрудник недоступен"
+                )
+
+            assignment = db.get(
+                StaffService,
+                (lesson.staff_id, lesson.service_id)
+            )
+
+            if assignment is None:
+                raise HTTPException(
+                    status_code=422,
+                    detail="Сотруднику не назначена эта услуга"
+                )
+
+    # 6. Изменяем статус
+    lesson.status = data.status
+
+    try:
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        raise HTTPException(
+            status_code=409,
+            detail="Конфликт расписания или ограничений базы данных"
+        )
+    except SQLAlchemyError:
+        db.rollback()
+        raise HTTPException(
+            status_code=500,
+            detail="Не удалось изменить статус занятия"
+        )
+
+    # 7. Возвращаем обновлённое занятие
+    row = db.execute(
+        sessions_query()
+        .where(TrainingSession.id == session_id)
+    ).mappings().first()
+
+    return dict(row)
+
+
+# Безопасное удаление занятия администратором
+@app.delete(
+    "/api/admin/sessions/{session_id}",
+    status_code=204
+)
+def delete_admin_session(
+    session_id: int,
+    admin: User = Depends(get_current_admin),
+    db: Session = Depends(get_db)
+):
+    # 1. Находим и блокируем занятие
+    lesson = db.scalar(
+        select(TrainingSession)
+        .where(TrainingSession.id == session_id)
+        .with_for_update()
+    )
+
+    if lesson is None:
+        raise HTTPException(
+            status_code=404,
+            detail="Занятие не найдено"
+        )
+
+     # 2. Сначала проверяем историю бронирований
+    existing_booking = db.scalar(
+        select(Booking.id)
+        .where(Booking.session_id == session_id)
+        .limit(1)
+    )
+
+    if existing_booking is not None:
+        raise HTTPException(
+            status_code=409,
+            detail="Нельзя удалить занятие: есть история бронирований"
+        )
+
+    # 3. Затем проверяем статус занятия
+    if lesson.status not in ("draft", "cancelled"):
+        raise HTTPException(
+            status_code=409,
+            detail="Удалять можно только черновики и отменённые занятия"
+        )
+
+
+    # 4. Удаляем занятие
+    db.delete(lesson)
+
+    try:
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        raise HTTPException(
+            status_code=409,
+            detail="Нельзя удалить занятие: имеются связанные данные"
+        )
+    except SQLAlchemyError:
+        db.rollback()
+        raise HTTPException(
+            status_code=500,
+            detail="Не удалось удалить занятие"
         )
 
     return None
