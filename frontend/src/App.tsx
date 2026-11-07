@@ -8,6 +8,7 @@ import { RegisterPage } from "./pages/authorization/ui/RegisterPage";
 import { ProtectedRoute } from "./features/authorization/ui/ProtectedRoute";
 import { BookingsPage } from "./pages/bookings/ui/BookingsPage";
 import { CatalogPage } from "./pages/catalog/ui/CatalogPage";
+import { TrainersPage } from "./pages/trainers/ui/TrainersPage";
 
 function App() {
   return (
@@ -24,6 +25,9 @@ function App() {
 
         {/* Расписание занятий */}
         <Route path="/schedule" element={<SchedulePage />} />
+
+        {/* Страница тренеров */}
+        <Route path="/trainers" element={<TrainersPage />} />
 
         {/* Мои записи */}
         <Route path="/bookings" element={<BookingsPage />} />
