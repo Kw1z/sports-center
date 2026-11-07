@@ -2225,3 +2225,131 @@ def delete_admin_session(
         )
 
     return None
+
+
+
+# Просмотр всех бронирований администратором
+@app.get(
+    "/api/admin/bookings",
+    response_model=list[BookingResponse]
+)
+def get_admin_bookings(
+    admin: User = Depends(get_current_admin),
+    db: Session = Depends(get_db)
+):
+    bookings = db.scalars(
+        select(Booking)
+        .order_by(
+            Booking.booked_at.desc(),
+            Booking.id.desc()
+        )
+    ).all()
+
+    return bookings
+
+
+
+# Отмена бронирования администратором
+@app.patch(
+    "/api/admin/bookings/{booking_id}/cancel",
+    response_model=BookingResponse
+)
+def cancel_admin_booking(
+    booking_id: int,
+    admin: User = Depends(get_current_admin),
+    db: Session = Depends(get_db)
+):
+    # 1. Находим бронирование любого клиента
+    booking_ref = db.scalar(
+        select(Booking)
+        .where(Booking.id == booking_id)
+    )
+
+    if booking_ref is None:
+        raise HTTPException(
+            status_code=404,
+            detail="Бронирование не найдено"
+        )
+
+    # 2. Блокируем занятие
+    training = db.scalar(
+        select(TrainingSession)
+        .where(TrainingSession.id == booking_ref.session_id)
+        .with_for_update()
+    )
+
+    if training is None:
+        raise HTTPException(
+            status_code=404,
+            detail="Занятие не найдено"
+        )
+
+    # 3. Повторно читаем бронирование под блокировкой
+    booking = db.scalar(
+        select(Booking)
+        .where(Booking.id == booking_id)
+        .with_for_update()
+        .execution_options(populate_existing=True)
+    )
+
+    if booking is None:
+        raise HTTPException(
+            status_code=404,
+            detail="Бронирование не найдено"
+        )
+
+    # 4. Проверяем статус бронирования
+    if booking.status != "reserved":
+        raise HTTPException(
+            status_code=409,
+            detail="Бронирование уже нельзя отменить"
+        )
+
+    # 5. Проверяем время занятия
+    if training.starts_at <= datetime.now(timezone.utc):
+        raise HTTPException(
+            status_code=409,
+            detail="Занятие уже началось или завершилось"
+        )
+
+    # 6. Отменяем бронирование
+    booking.status = "cancelled"
+    booking.cancelled_at = datetime.now(timezone.utc)
+
+    # 7. Сохраняем изменения
+    try:
+        db.commit()
+        db.refresh(booking)
+    except SQLAlchemyError:
+        db.rollback()
+        raise HTTPException(
+            status_code=500,
+            detail="Не удалось отменить бронирование"
+        )
+
+    return booking
+
+
+
+# Просмотр конкретного бронирования администратором
+@app.get(
+    "/api/admin/bookings/{booking_id}",
+    response_model=BookingResponse
+)
+def get_admin_booking(
+    booking_id: int,
+    admin: User = Depends(get_current_admin),
+    db: Session = Depends(get_db)
+):
+    # 1. Находим бронирование
+    booking = db.get(Booking, booking_id)
+
+    # 2. Проверяем, существует ли оно
+    if booking is None:
+        raise HTTPException(
+            status_code=404,
+            detail="Бронирование не найдено"
+        )
+
+    # 3. Возвращаем данные бронирования
+    return booking
