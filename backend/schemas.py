@@ -1,5 +1,5 @@
 from decimal import Decimal
-from pydantic import BaseModel, EmailStr, Field, ConfigDict
+from pydantic import BaseModel, EmailStr, Field, ConfigDict, AwareDatetime
 from datetime import datetime
 from typing import Literal
 
@@ -114,6 +114,13 @@ class ServicePriceUpdate(BaseModel):
     )
 
 
+
+# Изменение названия и описания услуги
+class ServiceDetailsUpdate(BaseModel):
+    name: str = Field(min_length=1, max_length=100)
+    description: str | None = None
+
+
 # Включение и отключение услуги
 class ServiceStatusUpdate(BaseModel):
     is_active: bool
@@ -169,3 +176,115 @@ class RoomNameUpdate(BaseModel):
 class RoomStatusUpdate(BaseModel):
     is_active: bool
 
+
+# Данные сотрудника для административного API
+class StaffResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    user_id: int | None
+    display_name: str
+    position: str
+    is_active: bool
+
+
+# Данные для создания нового сотрудника
+class StaffCreate(BaseModel):
+    display_name: str = Field(
+        min_length=1,
+        max_length=100
+    )
+    position: str = Field(
+        min_length=1,
+        max_length=100
+    )
+
+
+# Изменение имени и должности сотрудника
+class StaffUpdate(BaseModel):
+    display_name: str = Field(
+        min_length=1,
+        max_length=100
+    )
+    position: str = Field(
+        min_length=1,
+        max_length=100
+    )
+
+
+# Назначение услуги сотруднику
+class StaffServiceAssign(BaseModel):
+    service_id: int = Field(gt=0)
+
+
+# Изменение активности сотрудника
+class StaffStatusUpdate(BaseModel):
+    is_active: bool
+
+
+# Создание занятия администратором
+class AdminSessionCreate(BaseModel):
+    service_id: int = Field(gt=0)
+    room_id: int = Field(gt=0)
+    staff_id: int | None = Field(default=None, gt=0)
+
+    starts_at: AwareDatetime
+    ends_at: AwareDatetime
+
+    capacity: int = Field(ge=1, le=1000)
+
+    status: Literal["draft", "open"] = "draft"
+
+
+# Редактирование занятия администратором
+class AdminSessionUpdate(BaseModel):
+    room_id: int | None = Field(default=None, gt=0)
+    staff_id: int | None = Field(default=None, gt=0)
+
+    starts_at: AwareDatetime | None = None
+    ends_at: AwareDatetime | None = None
+
+    capacity: int | None = Field(
+        default=None,
+        ge=1,
+        le=1000
+    )
+
+
+# Изменение статуса занятия администратором
+class AdminSessionStatusUpdate(BaseModel):
+    status: Literal["draft", "open", "cancelled"]
+
+
+# Данные пользователя для администратора
+class AdminUserResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    role_id: int
+    full_name: str
+    email: str
+    phone: str | None
+    is_active: bool
+    created_at: datetime
+
+
+# Изменение активности пользователя администратором
+class AdminUserStatusUpdate(BaseModel):
+    is_active: bool
+
+
+# Основные показатели административной панели
+class AdminDashboardResponse(BaseModel):
+    total_users: int
+    active_users: int
+
+    total_staff: int
+    active_staff: int
+
+    total_sessions: int
+    open_sessions: int
+
+    total_bookings: int
+    reserved_bookings: int
+    cancelled_bookings: int
