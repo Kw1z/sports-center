@@ -141,6 +141,8 @@ export const HomePage = () => {
                 >
                   <Button
                     variant="contained"
+                    component="a"
+                    href="/schedule"
                     sx={{
                       bgcolor: "#176BFF",
                       borderRadius: "12px",
