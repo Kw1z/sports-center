@@ -12,6 +12,7 @@ import { SchedulePage } from "./pages/schedule/ui/SchedulePage";
 import { LoginPage } from "./pages/authorization/ui/LoginPage";
 import { RegisterPage } from "./pages/authorization/ui/RegisterPage";
 import { ProtectedRoute } from "./features/authorization/ui/ProtectedRoute";
+import { BookingsPage } from "./pages/bookings/ui/BookingsPage";
 
 function App() {
   return (
@@ -25,6 +26,9 @@ function App() {
 
         {/* Расписание занятий */}
         <Route path="/schedule" element={<SchedulePage />} />
+
+        {/* Мои записи */}
+        <Route path="/bookings" element={<BookingsPage />} />
 
         {/* Авторизация и регистрация */}
         <Route path="/login" element={<LoginPage />} />

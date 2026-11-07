@@ -1,6 +1,7 @@
 
 const API_URL = import.meta.env.VITE_API_URL || "/api";
 
+// Тип данных бронирования, получаемый от backend
 export type Booking = {
   id: number;
   client_id: number;
@@ -13,30 +14,36 @@ export type Booking = {
   cancelled_at: string | null;
 };
 
+// Данные для создания бронирования
 export type BookingCreate = {
   session_id: number;
 };
 
-// Получаем текст ошибки от backend
+// Получаем сообщение об ошибке от backend
 const getErrorMessage = async (
   response: Response,
   fallback: string,
 ): Promise<string> => {
   try {
-    const data = await response.json();
+    const data: unknown = await response.json();
 
-    if (typeof data.detail === "string") {
+    if (
+      typeof data === "object" &&
+      data !== null &&
+      "detail" in data &&
+      typeof data.detail === "string"
+    ) {
       return data.detail;
     }
   } catch {
-    // Если сервер вернул ответ не в формате JSON
+    // Сервер вернул ответ не в формате JSON
   }
 
   return fallback;
 };
 
 export const bookingsApi = {
-  // Получить мои записи
+  // 1. Получить все бронирования текущего пользователя
   getMyBookings: async (token: string): Promise<Booking[]> => {
     let response: Response;
 
@@ -63,7 +70,7 @@ export const bookingsApi = {
     return response.json() as Promise<Booking[]>;
   },
 
-  // Создать запись на занятие
+  // 2. Создать бронирование на тренировку
   createBooking: async (
     sessionId: number,
     token: string,
@@ -90,6 +97,39 @@ export const bookingsApi = {
         await getErrorMessage(
           response,
           "Не удалось записаться на занятие",
+        ),
+      );
+    }
+
+    return response.json() as Promise<Booking>;
+  },
+
+  // 3. Отменить бронирование
+  cancelBooking: async (
+    bookingId: number,
+    token: string,
+  ): Promise<Booking> => {
+    let response: Response;
+
+    try {
+      response = await fetch(
+        `${API_URL}/bookings/${bookingId}/cancel`,
+        {
+          method: "PATCH",
+          headers: {
+            Authorization: `Bearer ${token}`,
+          },
+        },
+      );
+    } catch {
+      throw new Error("Не удалось подключиться к серверу");
+    }
+
+    if (!response.ok) {
+      throw new Error(
+        await getErrorMessage(
+          response,
+          "Не удалось отменить бронирование",
         ),
       );
     }
