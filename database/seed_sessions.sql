@@ -1,95 +1,55 @@
 
--- BluePulse: тестовые залы, сотрудники и занятия
--- Перед запуском выполнить seed_services.sql
+-- BluePulse: демонстрационное расписание
+-- 6 направлений на ближайшие 10 дней
+-- Залы, услуги и тренеры должны быть созданы заранее
 
-
--- 1. Залы
-INSERT INTO rooms (
-    code, name, max_capacity, is_active
-)
-SELECT v.code, v.name, v.max_capacity, TRUE
-FROM (
-    VALUES
-        ('studio_a', 'Зал групповых занятий', 15),
-        ('massage_room', 'Кабинет массажа', 2)
-) AS v(code, name, max_capacity)
-WHERE NOT EXISTS (
-    SELECT 1 FROM rooms r WHERE r.code = v.code
-);
-
-
--- 2. Сотрудники
-INSERT INTO staff (
-    display_name, position, is_active
-)
-SELECT v.display_name, v.position, TRUE
-FROM (
-    VALUES
-        ('Анна Тестовая', 'Тренер'),
-        ('Мария Тестовая', 'Массажист')
-) AS v(display_name, position)
-WHERE NOT EXISTS (
-    SELECT 1
-    FROM staff st
-    WHERE st.display_name = v.display_name
-);
-
-
--- 3. Какие услуги проводят сотрудники
-INSERT INTO staff_services (
-    staff_id, service_id
-)
-SELECT st.id, s.id
-FROM (
-    VALUES
-        ('Анна Тестовая', 'yoga'),
-        ('Анна Тестовая', 'pilates'),
-        ('Мария Тестовая', 'massage')
-) AS v(staff_name, service_code)
-JOIN staff st ON st.display_name = v.staff_name
-JOIN services s ON s.code = v.service_code
-WHERE NOT EXISTS (
-    SELECT 1
-    FROM staff_services ss
-    WHERE ss.staff_id = st.id
-      AND ss.service_id = s.id
-);
-
-
--- 4. Предстоящие занятия
-WITH planned AS (
+WITH templates AS (
     SELECT *
     FROM (
         VALUES
-            ('yoga', 'studio_a',
-             'Анна Тестовая', 7, 10, 60, 12),
-
-            ('pilates', 'studio_a',
-             'Анна Тестовая', 8, 11, 60, 12),
-
-            ('massage', 'massage_room',
-             'Мария Тестовая', 7, 13, 45, 1)
-    ) AS p(
+            ('yoga', 'studio_a', 'anna_smirnova', 9, 12),
+            ('pilates', 'studio_a', 'maxim_volkov', 11, 10),
+            ('cycling', 'cycling_studio', 'ekaterina_orlova', 10, 14),
+            ('stretching', 'stretching_studio', 'dmitry_kuznetsov', 12, 12),
+            ('massage', 'massage_room', 'maria_sokolova', 13, 1),
+            ('diagnostics', 'diagnostics_room', 'olga_petrova', 15, 1)
+    ) AS t(
         service_code,
         room_code,
-        staff_name,
-        days_ahead,
+        staff_code,
         start_hour,
-        duration_minutes,
         capacity
     )
 ),
-schedule AS (
+planned AS (
     SELECT
-        *,
+        sv.id AS service_id,
+        rm.id AS room_id,
+        st.id AS staff_id,
         date_trunc('day', CURRENT_TIMESTAMP)
-        + make_interval(
-            days => days_ahead,
-            hours => start_hour
-        ) AS start_time
-    FROM planned
+            + make_interval(
+                days => days.day_number,
+                hours => t.start_hour
+            ) AS starts_at,
+        sv.duration_minutes,
+        t.capacity
+    FROM templates AS t
+    CROSS JOIN generate_series(1, 10) AS days(day_number)
+    JOIN public.services AS sv
+        ON sv.code = t.service_code
+    JOIN public.rooms AS rm
+        ON rm.code = t.room_code
+    JOIN public.staff AS st
+        ON st.code = t.staff_code
+    JOIN public.staff_services AS ss
+        ON ss.staff_id = st.id
+       AND ss.service_id = sv.id
+    WHERE sv.is_active = TRUE
+      AND rm.is_active = TRUE
+      AND st.is_active = TRUE
+      AND t.capacity <= rm.max_capacity
 )
-INSERT INTO sessions (
+INSERT INTO public.sessions (
     service_id,
     room_id,
     staff_id,
@@ -99,29 +59,37 @@ INSERT INTO sessions (
     status
 )
 SELECT
-    s.id,
-    r.id,
-    st.id,
-    p.start_time,
-    p.start_time
+    p.service_id,
+    p.room_id,
+    p.staff_id,
+    p.starts_at,
+    p.starts_at
         + make_interval(mins => p.duration_minutes),
     p.capacity,
     'open'
-FROM schedule p
-JOIN services s ON s.code = p.service_code
-JOIN rooms r ON r.code = p.room_code
-JOIN staff st ON st.display_name = p.staff_name
-JOIN staff_services ss
-    ON ss.staff_id = st.id
-    AND ss.service_id = s.id
-WHERE s.is_active = TRUE
-  AND r.is_active = TRUE
-  AND st.is_active = TRUE
-  AND p.capacity <= r.max_capacity
-  AND NOT EXISTS (
-      SELECT 1
-      FROM sessions existing
-      WHERE existing.service_id = s.id
-        AND existing.room_id = r.id
-        AND existing.starts_at = p.start_time
-  );
+FROM planned AS p
+WHERE NOT EXISTS (
+    SELECT 1
+    FROM public.sessions AS existing
+    WHERE existing.status <> 'cancelled'
+      AND existing.room_id = p.room_id
+      AND existing.starts_at <
+          p.starts_at + make_interval(mins => p.duration_minutes)
+      AND existing.ends_at > p.starts_at
+)
+AND NOT EXISTS (
+    SELECT 1
+    FROM public.sessions AS existing
+    WHERE existing.status <> 'cancelled'
+      AND existing.staff_id = p.staff_id
+      AND existing.starts_at <
+          p.starts_at + make_interval(mins => p.duration_minutes)
+      AND existing.ends_at > p.starts_at
+)
+AND NOT EXISTS (
+    SELECT 1
+    FROM public.sessions AS existing
+    WHERE existing.service_id = p.service_id
+      AND existing.room_id = p.room_id
+      AND existing.starts_at = p.starts_at
+);

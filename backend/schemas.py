@@ -288,3 +288,16 @@ class AdminDashboardResponse(BaseModel):
     total_bookings: int
     reserved_bookings: int
     cancelled_bookings: int
+
+
+# Публичная информация о тренере для Frontend
+class TrainerResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    display_name: str
+    direction: str
+    specialization: str
+    experience_years: int
+    description: str
+    photo_url: str | None
