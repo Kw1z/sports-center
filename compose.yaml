@@ -9,12 +9,18 @@ services:
     ports:
       - "127.0.0.1:${POSTGRES_HOST_PORT:-5432}:5432"
     
+
     volumes:
       - postgres_data:/var/lib/postgresql/data
       - ./database/schema.sql:/docker-entrypoint-initdb.d/01_schema.sql:ro
       - ./database/seed_roles.sql:/docker-entrypoint-initdb.d/02_seed_roles.sql:ro
-      - ./database/seed_services.sql:/docker-entrypoint-initdb.d/03_seed_services.sql:ro
-      - ./database/seed_sessions.sql:/docker-entrypoint-initdb.d/04_seed_sessions.sql:ro
+      - ./database/migrations/001_staff_profiles.sql:/docker-entrypoint-initdb.d/03_staff_profiles.sql:ro
+      - ./database/seed_services.sql:/docker-entrypoint-initdb.d/04_seed_services.sql:ro
+      - ./database/seed_rooms.sql:/docker-entrypoint-initdb.d/05_seed_rooms.sql:ro
+      - ./database/seed_staff.sql:/docker-entrypoint-initdb.d/06_seed_staff.sql:ro
+      - ./database/seed_staff_services.sql:/docker-entrypoint-initdb.d/07_seed_staff_services.sql:ro
+      - ./database/seed_sessions.sql:/docker-entrypoint-initdb.d/08_seed_sessions.sql:ro
+
 
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]

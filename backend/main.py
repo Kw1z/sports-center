@@ -59,6 +59,7 @@ from schemas import (
     AdminUserResponse,
     AdminUserStatusUpdate,
     AdminDashboardResponse,
+    TrainerResponse,
 )
 
 from security import (
@@ -2551,3 +2552,28 @@ def get_admin_dashboard(
         "reserved_bookings": reserved_bookings,
         "cancelled_bookings": cancelled_bookings
     }
+
+
+
+# Публичный список тренеров для Frontend BluePulse
+@app.get(
+    "/api/trainers",
+    response_model=list[TrainerResponse]
+)
+def get_trainers(
+    db: Session = Depends(get_db)
+):
+    trainers = db.scalars(
+        select(Staff)
+        .where(
+            Staff.is_active.is_(True),
+            Staff.code.is_not(None),
+            Staff.direction.is_not(None),
+            Staff.specialization.is_not(None),
+            Staff.experience_years.is_not(None),
+            Staff.description.is_not(None)
+        )
+        .order_by(Staff.id)
+    ).all()
+
+    return trainers

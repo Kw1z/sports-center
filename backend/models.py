@@ -90,6 +90,27 @@ class Staff(Base):
     display_name: Mapped[str] = mapped_column(String(120))
     position: Mapped[str] = mapped_column(String(60))
     is_active: Mapped[bool] = mapped_column(Boolean)
+    
+    # Дополнительная информация для страницы тренеров
+    code: Mapped[str | None] = mapped_column(
+        String(40), nullable=True
+    )
+    direction: Mapped[str | None] = mapped_column(
+        String(80), nullable=True
+    )
+    specialization: Mapped[str | None] = mapped_column(
+        String(120), nullable=True
+    )
+    experience_years: Mapped[int | None] = mapped_column(
+        SmallInteger, nullable=True
+    )
+    description: Mapped[str | None] = mapped_column(
+        Text, nullable=True
+    )
+    photo_url: Mapped[str | None] = mapped_column(
+        Text, nullable=True
+    )
+
 
     user: Mapped[User | None] = relationship(
         back_populates="staff_records"
