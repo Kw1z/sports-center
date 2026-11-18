@@ -17,6 +17,9 @@ export const LoginForm = () => {
     location.state as { message?: string } | null
   )?.message;
 
+  // Адрес, с которого пользователя отправило на вход
+  const from = (location.state as { from?: string } | null)?.from;
+
   const [formData, setFormData] = useState({
     email: "",
     password: "",
@@ -49,10 +52,14 @@ export const LoginForm = () => {
 
       // Проверяем JWT через /api/auth/me.
       // AuthProvider сам сохранит токен и данные пользователя.
-      await auth.signIn(result.access_token);
+      const user = await auth.signIn(result.access_token);
 
-      // После успешного входа переходим на главную.
-      navigate("/", { replace: true });
+      // Администратора отправляем в панель управления,
+      // остальных — назад на запрошенную страницу или на главную.
+      navigate(
+        user.role === "admin" ? "/admin" : from ?? "/",
+        { replace: true }
+      );
     } catch (err) {
       setError(
         err instanceof Error

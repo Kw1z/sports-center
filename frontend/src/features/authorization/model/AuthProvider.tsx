@@ -17,7 +17,7 @@ export type AuthContextValue = {
   token: string | null;
   isAuthenticated: boolean;
   isLoading: boolean;
-  signIn: (token: string) => Promise<void>;
+  signIn: (token: string) => Promise<User>;
   signOut: () => void;
 };
 
@@ -49,6 +49,9 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
 
     setUser(currentUser);
     setToken(newToken);
+
+    // Возвращаем пользователя, чтобы форма входа узнала его роль
+    return currentUser;
   }, []);
 
   // Восстановление авторизации после обновления страницы
