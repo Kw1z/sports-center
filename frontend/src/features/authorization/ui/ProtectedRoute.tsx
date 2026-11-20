@@ -7,9 +7,11 @@ import { AuthContext } from "../model/AuthProvider";
 
 type ProtectedRouteProps = {
   children: ReactNode;
+  /** Требуемая роль пользователя, например "admin" */
+  role?: string;
 };
 
-export const ProtectedRoute = ({ children }: ProtectedRouteProps) => {
+export const ProtectedRoute = ({ children, role }: ProtectedRouteProps) => {
   const auth = useContext(AuthContext);
   const location = useLocation();
 
@@ -42,6 +44,11 @@ export const ProtectedRoute = ({ children }: ProtectedRouteProps) => {
         replace
       />
     );
+  }
+
+  // Если роль не совпадает с требуемой, отправляем на главную.
+  if (role && auth.user?.role !== role) {
+    return <Navigate to="/" replace />;
   }
 
   return <>{children}</>;

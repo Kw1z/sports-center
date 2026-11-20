@@ -9,6 +9,15 @@ import { ProtectedRoute } from "./features/authorization/ui/ProtectedRoute";
 import { BookingsPage } from "./pages/bookings/ui/BookingsPage";
 import { CatalogPage } from "./pages/catalog/ui/CatalogPage";
 import { TrainersPage } from "./pages/trainers/ui/TrainersPage";
+import { AdminLayout } from "./pages/admin/ui/AdminLayout";
+import { AdminOverviewPage } from "./pages/admin/ui/AdminOverviewPage";
+import { AdminSessionsPage } from "./pages/admin/ui/AdminSessionsPage";
+import { AdminCreateSessionPage } from "./pages/admin/ui/AdminCreateSessionPage";
+import { AdminServicesPage } from "./pages/admin/ui/AdminServicesPage";
+import { AdminStaffPage } from "./pages/admin/ui/AdminStaffPage";
+import { AdminRoomsPage } from "./pages/admin/ui/AdminRoomsPage";
+import { AdminBookingsPage } from "./pages/admin/ui/AdminBookingsPage";
+import { AdminUsersPage } from "./pages/admin/ui/AdminUsersPage";
 
 function App() {
   return (
@@ -50,6 +59,30 @@ function App() {
             </ProtectedRoute>
           }
         />
+
+        {/* Панель администратора */}
+        <Route
+          path="/admin"
+          element={
+            <ProtectedRoute role="admin">
+              <AdminLayout />
+            </ProtectedRoute>
+          }
+        >
+          {/* Обзор */}
+          <Route index element={<AdminOverviewPage />} />
+
+          {/* Сеансы и записи */}
+          <Route path="sessions" element={<AdminSessionsPage />} />
+          <Route path="sessions/new" element={<AdminCreateSessionPage />} />
+
+          {/* Разделы без извлечённого макета — заглушки */}
+          <Route path="services" element={<AdminServicesPage />} />
+          <Route path="staff" element={<AdminStaffPage />} />
+          <Route path="rooms" element={<AdminRoomsPage />} />
+          <Route path="bookings" element={<AdminBookingsPage />} />
+          <Route path="users" element={<AdminUsersPage />} />
+        </Route>
 
         {/* Неизвестные маршруты */}
         <Route path="*" element={<Navigate to="/" replace />} />

@@ -7,6 +7,8 @@ export type User = {
   email: string;
   phone: string | null;
   is_active: boolean;
+  /** Код роли: client / staff / admin */
+  role: string;
 };
 
 export type RegisterData = {
@@ -30,7 +32,7 @@ type ApiErrorResponse = {
   detail?: string | { msg: string }[];
 };
 
-async function apiRequest<T>(
+export async function apiRequest<T>(
   endpoint: string,
   options: RequestInit = {},
 ): Promise<T> {
