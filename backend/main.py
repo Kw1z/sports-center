@@ -1576,6 +1576,7 @@ async def upload_admin_staff_photo(
 
 
 
+
 # Создание нового сотрудника администратором
 @app.post(
     "/api/admin/staff",
@@ -1591,35 +1592,63 @@ def create_admin_staff(
     name = data.display_name.strip()
     position = data.position.strip()
 
-    # 2. Проверяем данные
+    # 2. Проверяем имя и должность
     if not name or not position:
         raise HTTPException(
             status_code=422,
             detail="Имя и должность не могут быть пустыми"
         )
 
-    # 3. Создаём сотрудника
+    # 3. Проверяем уникальность кода тренера
+    if data.code is not None:
+        existing_code = db.scalar(
+            select(Staff.id).where(
+                Staff.code == data.code
+            )
+        )
+
+        if existing_code is not None:
+            raise HTTPException(
+                status_code=409,
+                detail="Тренер с таким кодом уже существует"
+            )
+
+    # 4. Создаём сотрудника
     employee = Staff(
         user_id=None,
         display_name=name,
         position=position,
-        is_active=True
+        is_active=True,
+        code=data.code,
+        direction=data.direction,
+        specialization=data.specialization,
+        experience_years=data.experience_years,
+        description=data.description
     )
 
-    # 4. Сохраняем в PostgreSQL
+    # 5. Сохраняем в PostgreSQL
     db.add(employee)
 
     try:
         db.commit()
         db.refresh(employee)
-    except SQLAlchemyError:
+
+    except IntegrityError as exc:
+        db.rollback()
+        raise HTTPException(
+            status_code=409,
+            detail="Не удалось создать сотрудника: конфликт данных"
+        ) from exc
+
+    except SQLAlchemyError as exc:
         db.rollback()
         raise HTTPException(
             status_code=500,
             detail="Не удалось создать сотрудника"
-        )
+        ) from exc
 
     return employee
+
 
 
 # Создание учётной записи для существующего тренера
@@ -1723,6 +1752,8 @@ def create_admin_staff_account(
     return employee
 
 
+
+
 # Редактирование сотрудника администратором
 @app.patch(
     "/api/admin/staff/{staff_id}",
@@ -1735,7 +1766,11 @@ def update_admin_staff(
     db: Session = Depends(get_db)
 ):
     # 1. Находим сотрудника
-    employee = db.get(Staff, staff_id)
+    employee = db.scalar(
+        select(Staff)
+        .where(Staff.id == staff_id)
+        .with_for_update()
+    )
 
     if employee is None:
         raise HTTPException(
@@ -1743,33 +1778,74 @@ def update_admin_staff(
             detail="Сотрудник не найден"
         )
 
-    # 2. Убираем лишние пробелы
+    # 2. Проверяем имя и должность
     new_name = data.display_name.strip()
     new_position = data.position.strip()
 
-    # 3. Проверяем данные
     if not new_name or not new_position:
         raise HTTPException(
             status_code=422,
             detail="Имя и должность не могут быть пустыми"
         )
 
-    # 4. Обновляем сотрудника
+    # 3. Проверяем уникальность нового кода тренера
+    if "code" in data.model_fields_set:
+        if data.code is not None:
+            existing_code = db.scalar(
+                select(Staff.id).where(
+                    Staff.code == data.code,
+                    Staff.id != staff_id
+                )
+            )
+
+            if existing_code is not None:
+                raise HTTPException(
+                    status_code=409,
+                    detail="Тренер с таким кодом уже существует"
+                )
+
+        employee.code = data.code
+
+    # 4. Обновляем имя и должность
     employee.display_name = new_name
     employee.position = new_position
 
-    # 5. Сохраняем в PostgreSQL
+    # 5. Обновляем дополнительные данные тренера
+    # Только если администратор передал соответствующее поле
+
+    if "direction" in data.model_fields_set:
+        employee.direction = data.direction
+
+    if "specialization" in data.model_fields_set:
+        employee.specialization = data.specialization
+
+    if "experience_years" in data.model_fields_set:
+        employee.experience_years = data.experience_years
+
+    if "description" in data.model_fields_set:
+        employee.description = data.description
+
+    # 6. Сохраняем изменения в PostgreSQL
     try:
         db.commit()
         db.refresh(employee)
-    except SQLAlchemyError:
+
+    except IntegrityError as exc:
+        db.rollback()
+        raise HTTPException(
+            status_code=409,
+            detail="Не удалось сохранить сотрудника: конфликт данных"
+        ) from exc
+
+    except SQLAlchemyError as exc:
         db.rollback()
         raise HTTPException(
             status_code=500,
             detail="Не удалось изменить данные сотрудника"
-        )
+        ) from exc
 
     return employee
+
 
 
 # Назначение услуги сотруднику администратором

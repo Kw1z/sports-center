@@ -212,8 +212,8 @@ class RoomStatusUpdate(BaseModel):
     is_active: bool
 
 
-# Данные сотрудника для административного API
 
+# Данные сотрудника для административного API
 class StaffResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -223,6 +223,15 @@ class StaffResponse(BaseModel):
     position: str
     is_active: bool
     photo_url: str | None
+
+    # Дополнительные данные для каталога тренеров
+    code: str | None = None
+    direction: str | None = None
+    specialization: str | None = None
+    experience_years: int | None = None
+    description: str | None = None
+
+
 
 
 
@@ -237,6 +246,29 @@ class StaffCreate(BaseModel):
         max_length=100
     )
 
+    # Данные для публичной страницы тренеров
+    code: str | None = Field(
+        default=None,
+        min_length=1,
+        max_length=40,
+        pattern=r"^[a-z0-9_]+$"
+    )
+    direction: str | None = Field(
+        default=None,
+        max_length=80
+    )
+    specialization: str | None = Field(
+        default=None,
+        max_length=120
+    )
+    experience_years: int | None = Field(
+        default=None,
+        ge=0,
+        le=100
+    )
+    description: str | None = None
+
+
 
 # Данные для создания аккаунта тренера
 class StaffAccountCreate(BaseModel):
@@ -248,6 +280,8 @@ class StaffAccountCreate(BaseModel):
 
 
 # Изменение имени и должности сотрудника
+
+# Данные для редактирования сотрудника
 class StaffUpdate(BaseModel):
     display_name: str = Field(
         min_length=1,
@@ -257,6 +291,29 @@ class StaffUpdate(BaseModel):
         min_length=1,
         max_length=100
     )
+
+    # Данные для публичной страницы тренеров
+    code: str | None = Field(
+        default=None,
+        min_length=1,
+        max_length=40,
+        pattern=r"^[a-z0-9_]+$"
+    )
+    direction: str | None = Field(
+        default=None,
+        max_length=80
+    )
+    specialization: str | None = Field(
+        default=None,
+        max_length=120
+    )
+    experience_years: int | None = Field(
+        default=None,
+        ge=0,
+        le=100
+    )
+    description: str | None = None
+
 
 
 # Назначение услуги сотруднику
