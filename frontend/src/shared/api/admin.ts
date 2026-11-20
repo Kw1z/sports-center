@@ -1,9 +1,10 @@
+
 import { apiRequest } from "./auth";
 
-// Ключ токена в sessionStorage (совпадает с AuthProvider)
+// Ключ токена в sessionStorage
 const TOKEN_KEY = "bluepulse_token";
 
-// Услуга из каталога (ответ админского API)
+// Услуга
 export type AdminService = {
   id: number;
   code: string;
@@ -17,7 +18,7 @@ export type AdminService = {
   is_active: boolean;
 };
 
-// Зал / кабинет
+// Помещение
 export type AdminRoom = {
   id: number;
   code: string;
@@ -26,16 +27,23 @@ export type AdminRoom = {
   is_active: boolean;
 };
 
-// Сотрудник
+// Сотрудник с данными публичного профиля
 export type AdminStaff = {
   id: number;
   user_id: number | null;
   display_name: string;
   position: string;
   is_active: boolean;
+  photo_url: string | null;
+
+  code: string | null;
+  direction: string | null;
+  specialization: string | null;
+  experience_years: number | null;
+  description: string | null;
 };
 
-// Занятие в расписании
+// Занятие
 export type AdminSession = {
   id: number;
   service_id: number;
@@ -50,7 +58,7 @@ export type AdminSession = {
   status: string;
 };
 
-// Бронирование клиента
+// Бронирование
 export type AdminBooking = {
   id: number;
   client_id: number;
@@ -63,7 +71,7 @@ export type AdminBooking = {
   cancelled_at: string | null;
 };
 
-// Данные для создания занятия
+// Создание занятия
 export type CreateSessionData = {
   service_id: number;
   room_id: number;
@@ -74,18 +82,22 @@ export type CreateSessionData = {
   status: "draft" | "open";
 };
 
-// Заголовок авторизации из сохранённого токена
+// Авторизация администратора
 const getAuthHeaders = () => {
   const token = sessionStorage.getItem(TOKEN_KEY);
 
   if (!token) {
-    throw new Error("Требуется вход в аккаунт администратора");
+    throw new Error(
+      "Требуется вход в аккаунт администратора"
+    );
   }
 
-  return { Authorization: `Bearer ${token}` };
+  return {
+    Authorization: `Bearer ${token}`,
+  };
 };
 
-// Данные для создания новой услуги
+// Создание услуги
 export type CreateServiceData = {
   code: string;
   name: string;
@@ -97,7 +109,7 @@ export type CreateServiceData = {
   currency_code: string;
 };
 
-// Учётная запись пользователя (вид администратору)
+// Пользователь
 export type AdminUser = {
   id: number;
   role_id: number;
@@ -108,21 +120,36 @@ export type AdminUser = {
   created_at: string;
 };
 
-// Данные для создания сотрудника
+// Создание и обновление сотрудника
 export type CreateStaffData = {
   display_name: string;
   position: string;
+
+  code?: string | null;
+  direction?: string | null;
+  specialization?: string | null;
+  experience_years?: number | null;
+  description?: string | null;
 };
 
-// Данные для создания помещения
+// Создание аккаунта тренера
+export type CreateStaffAccountData = {
+  email: string;
+  password: string;
+};
+
+// Создание помещения
 export type CreateRoomData = {
   code: string;
   name: string;
   max_capacity: number;
 };
 
-// Запросы к админскому разделу API
 export const adminApi = {
+  // ==========================
+  // Получение данных
+  // ==========================
+
   getServices: () =>
     apiRequest<AdminService[]>("/admin/services", {
       headers: getAuthHeaders(),
@@ -148,12 +175,20 @@ export const adminApi = {
       headers: getAuthHeaders(),
     }),
 
+  // ==========================
+  // Занятия
+  // ==========================
+
   createSession: (data: CreateSessionData) =>
     apiRequest<{ id: number }>("/admin/sessions", {
       method: "POST",
       headers: getAuthHeaders(),
       body: JSON.stringify(data),
     }),
+
+  // ==========================
+  // Услуги
+  // ==========================
 
   createService: (data: CreateServiceData) =>
     apiRequest<AdminService>("/admin/services", {
@@ -162,21 +197,37 @@ export const adminApi = {
       body: JSON.stringify(data),
     }),
 
-  updateServicePrice: (serviceId: number, price: number) =>
-    apiRequest<AdminService>(`/admin/services/${serviceId}/price`, {
-      method: "PATCH",
-      headers: getAuthHeaders(),
-      body: JSON.stringify({ price }),
-    }),
+  updateServicePrice: (
+    serviceId: number,
+    price: number
+  ) =>
+    apiRequest<AdminService>(
+      `/admin/services/${serviceId}/price`,
+      {
+        method: "PATCH",
+        headers: getAuthHeaders(),
+        body: JSON.stringify({ price }),
+      }
+    ),
 
-  updateServiceStatus: (serviceId: number, isActive: boolean) =>
-    apiRequest<AdminService>(`/admin/services/${serviceId}/status`, {
-      method: "PATCH",
-      headers: getAuthHeaders(),
-      body: JSON.stringify({ is_active: isActive }),
-    }),
+  updateServiceStatus: (
+    serviceId: number,
+    isActive: boolean
+  ) =>
+    apiRequest<AdminService>(
+      `/admin/services/${serviceId}/status`,
+      {
+        method: "PATCH",
+        headers: getAuthHeaders(),
+        body: JSON.stringify({ is_active: isActive }),
+      }
+    ),
 
-  // Сотрудники
+  // ==========================
+  // Сотрудники и тренеры
+  // ==========================
+
+  // Создание сотрудника с профилем тренера
   createStaff: (data: CreateStaffData) =>
     apiRequest<AdminStaff>("/admin/staff", {
       method: "POST",
@@ -184,39 +235,90 @@ export const adminApi = {
       body: JSON.stringify(data),
     }),
 
-  updateStaff: (staffId: number, data: CreateStaffData) =>
-    apiRequest<AdminStaff>(`/admin/staff/${staffId}`, {
-      method: "PATCH",
-      headers: getAuthHeaders(),
-      body: JSON.stringify(data),
-    }),
+  // Обновление информации о сотруднике
+  updateStaff: (
+    staffId: number,
+    data: CreateStaffData
+  ) =>
+    apiRequest<AdminStaff>(
+      `/admin/staff/${staffId}`,
+      {
+        method: "PATCH",
+        headers: getAuthHeaders(),
+        body: JSON.stringify(data),
+      }
+    ),
 
-  updateStaffStatus: (staffId: number, isActive: boolean) =>
-    apiRequest<AdminStaff>(`/admin/staff/${staffId}/status`, {
-      method: "PATCH",
-      headers: getAuthHeaders(),
-      body: JSON.stringify({ is_active: isActive }),
-    }),
+  // Создание аккаунта для входа тренера
+  createStaffAccount: (
+    staffId: number,
+    data: CreateStaffAccountData
+  ) =>
+    apiRequest<AdminStaff>(
+      `/admin/staff/${staffId}/account`,
+      {
+        method: "POST",
+        headers: getAuthHeaders(),
+        body: JSON.stringify(data),
+      }
+    ),
 
+  // Активность сотрудника
+  updateStaffStatus: (
+    staffId: number,
+    isActive: boolean
+  ) =>
+    apiRequest<AdminStaff>(
+      `/admin/staff/${staffId}/status`,
+      {
+        method: "PATCH",
+        headers: getAuthHeaders(),
+        body: JSON.stringify({
+          is_active: isActive,
+        }),
+      }
+    ),
+
+  // Услуги сотрудника
   getStaffServices: (staffId: number) =>
-    apiRequest<AdminService[]>(`/admin/staff/${staffId}/services`, {
-      headers: getAuthHeaders(),
-    }),
+    apiRequest<AdminService[]>(
+      `/admin/staff/${staffId}/services`,
+      {
+        headers: getAuthHeaders(),
+      }
+    ),
 
-  assignStaffService: (staffId: number, serviceId: number) =>
-    apiRequest<unknown>(`/admin/staff/${staffId}/services`, {
-      method: "POST",
-      headers: getAuthHeaders(),
-      body: JSON.stringify({ service_id: serviceId }),
-    }),
+  assignStaffService: (
+    staffId: number,
+    serviceId: number
+  ) =>
+    apiRequest<unknown>(
+      `/admin/staff/${staffId}/services`,
+      {
+        method: "POST",
+        headers: getAuthHeaders(),
+        body: JSON.stringify({
+          service_id: serviceId,
+        }),
+      }
+    ),
 
-  removeStaffService: (staffId: number, serviceId: number) =>
-    apiRequest<unknown>(`/admin/staff/${staffId}/services/${serviceId}`, {
-      method: "DELETE",
-      headers: getAuthHeaders(),
-    }),
+  removeStaffService: (
+    staffId: number,
+    serviceId: number
+  ) =>
+    apiRequest<unknown>(
+      `/admin/staff/${staffId}/services/${serviceId}`,
+      {
+        method: "DELETE",
+        headers: getAuthHeaders(),
+      }
+    ),
 
+  // ==========================
   // Помещения
+  // ==========================
+
   createRoom: (data: CreateRoomData) =>
     apiRequest<AdminRoom>("/admin/rooms", {
       method: "POST",
@@ -224,44 +326,83 @@ export const adminApi = {
       body: JSON.stringify(data),
     }),
 
-  updateRoomName: (roomId: number, name: string) =>
-    apiRequest<AdminRoom>(`/admin/rooms/${roomId}`, {
-      method: "PATCH",
-      headers: getAuthHeaders(),
-      body: JSON.stringify({ name }),
-    }),
+  updateRoomName: (
+    roomId: number,
+    name: string
+  ) =>
+    apiRequest<AdminRoom>(
+      `/admin/rooms/${roomId}`,
+      {
+        method: "PATCH",
+        headers: getAuthHeaders(),
+        body: JSON.stringify({ name }),
+      }
+    ),
 
-  updateRoomCapacity: (roomId: number, capacity: number) =>
-    apiRequest<AdminRoom>(`/admin/rooms/${roomId}/capacity`, {
-      method: "PATCH",
-      headers: getAuthHeaders(),
-      body: JSON.stringify({ max_capacity: capacity }),
-    }),
+  updateRoomCapacity: (
+    roomId: number,
+    capacity: number
+  ) =>
+    apiRequest<AdminRoom>(
+      `/admin/rooms/${roomId}/capacity`,
+      {
+        method: "PATCH",
+        headers: getAuthHeaders(),
+        body: JSON.stringify({
+          max_capacity: capacity,
+        }),
+      }
+    ),
 
-  updateRoomStatus: (roomId: number, isActive: boolean) =>
-    apiRequest<AdminRoom>(`/admin/rooms/${roomId}/status`, {
-      method: "PATCH",
-      headers: getAuthHeaders(),
-      body: JSON.stringify({ is_active: isActive }),
-    }),
+  updateRoomStatus: (
+    roomId: number,
+    isActive: boolean
+  ) =>
+    apiRequest<AdminRoom>(
+      `/admin/rooms/${roomId}/status`,
+      {
+        method: "PATCH",
+        headers: getAuthHeaders(),
+        body: JSON.stringify({
+          is_active: isActive,
+        }),
+      }
+    ),
 
+  // ==========================
   // Бронирования
-  cancelBooking: (bookingId: number) =>
-    apiRequest<AdminBooking>(`/admin/bookings/${bookingId}/cancel`, {
-      method: "PATCH",
-      headers: getAuthHeaders(),
-    }),
+  // ==========================
 
+  cancelBooking: (bookingId: number) =>
+    apiRequest<AdminBooking>(
+      `/admin/bookings/${bookingId}/cancel`,
+      {
+        method: "PATCH",
+        headers: getAuthHeaders(),
+      }
+    ),
+
+  // ==========================
   // Пользователи
+  // ==========================
+
   getUsers: () =>
     apiRequest<AdminUser[]>("/admin/users", {
       headers: getAuthHeaders(),
     }),
 
-  updateUserStatus: (userId: number, isActive: boolean) =>
-    apiRequest<AdminUser>(`/admin/users/${userId}/status`, {
-      method: "PATCH",
-      headers: getAuthHeaders(),
-      body: JSON.stringify({ is_active: isActive }),
-    }),
+  updateUserStatus: (
+    userId: number,
+    isActive: boolean
+  ) =>
+    apiRequest<AdminUser>(
+      `/admin/users/${userId}/status`,
+      {
+        method: "PATCH",
+        headers: getAuthHeaders(),
+        body: JSON.stringify({
+          is_active: isActive,
+        }),
+      }
+    ),
 };
