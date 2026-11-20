@@ -1,77 +1,68 @@
 
-import { Box, Container, Typography } from "@mui/material";
+import { useEffect, useState } from "react";
+
+import {
+  Alert,
+  Box,
+  Button,
+  CircularProgress,
+  Container,
+  Typography,
+} from "@mui/material";
 
 import { Header } from "../../../widgets/header/ui/Header";
 import { TrainerCard } from "../../../shared/ui/TrainerCard/TrainerCard";
 
-// Временные данные из макета Figma.
-//
-// Пока в backend только тестовые сотрудники.
-// Когда друг добавит всех тренеров и API для них,
-// заменим этот массив загрузкой из базы данных.
-
-type Trainer = {
-  id: number;
-  name: string;
-  direction: string;
-  image?: string;
-  specialization: string;
-  experience?: string;
-  description: string;
-};
-
-const trainers: Trainer[] = [
-  {
-    id: 1,
-    name: "Анна Смирнова",
-    direction: "Йога",
-    specialization: "Инструктор по йоге",
-    description:
-      "Проводит занятия йогой, уделяя внимание правильной технике, дыханию и развитию гибкости.",
-  },
-  {
-    id: 2,
-    name: "Максим Волков",
-    direction: "Пилатес",
-    specialization: "Инструктор по пилатесу",
-    description:
-      "Помогает укреплять мышцы корпуса, улучшать осанку и развивать координацию движений.",
-  },
-  {
-    id: 3,
-    name: "Екатерина Орлова",
-    direction: "Сайкл",
-    specialization: "Инструктор по сайклу",
-    description:
-      "Проводит динамичные кардиотренировки на велотренажёрах с акцентом на выносливость.",
-  },
-  {
-    id: 4,
-    name: "Дмитрий Кузнецов",
-    direction: "Растяжка",
-    specialization: "Инструктор по растяжке",
-    description:
-      "Помогает развивать гибкость, улучшать подвижность суставов и расслаблять мышцы.",
-  },
-  {
-    id: 5,
-    name: "Мария Соколова",
-    direction: "Массаж",
-    specialization: "Специалист по массажу",
-    description:
-      "Занимается массажем, направленным на расслабление мышц и восстановление после нагрузок.",
-  },
-  {
-    id: 6,
-    name: "Ольга Петрова",
-    direction: "Диагностика",
-    specialization: "Специалист по диагностике",
-    description:
-      "Проводит оценку состояния организма и помогает разобраться в показателях состава тела.",
-  },
-];
+import {
+  trainersApi,
+  type Trainer,
+} from "../../../shared/api/trainers";
 
 export const TrainersPage = () => {
+  // Список тренеров из backend
+  const [trainers, setTrainers] = useState<Trainer[]>([]);
+
+  // Состояния загрузки
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+  const [reloadKey, setReloadKey] = useState(0);
+
+  // Получение тренеров из базы данных
+  useEffect(() => {
+    let cancelled = false;
+
+    const loadTrainers = async () => {
+      setLoading(true);
+      setError("");
+
+      try {
+        const data = await trainersApi.getAll();
+
+        if (!cancelled) {
+          setTrainers(data);
+        }
+      } catch (err) {
+        if (!cancelled) {
+          setError(
+            err instanceof Error
+              ? err.message
+              : "Не удалось загрузить тренеров",
+          );
+        }
+      } finally {
+        if (!cancelled) {
+          setLoading(false);
+        }
+      }
+    };
+
+    void loadTrainers();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [reloadKey]);
+
   return (
     <Box
       sx={{
@@ -91,7 +82,7 @@ export const TrainersPage = () => {
           pb: 8,
         }}
       >
-        {/* Заголовок по макету Figma */}
+        {/* Заголовок */}
         <Box sx={{ mb: 4 }}>
           <Typography
             sx={{
@@ -124,35 +115,100 @@ export const TrainersPage = () => {
               lineHeight: 1.7,
             }}
           >
-            Шесть направлений — шесть специалистов.
-            Наведите на фотографию, чтобы узнать больше.
+            Познакомьтесь со специалистами нашего клуба.
+            Наведите на карточку или нажмите на неё,
+            чтобы узнать больше.
           </Typography>
         </Box>
 
-        {/* Сетка карточек 3 × 2 */}
-        <Box
-          sx={{
-            display: "grid",
-            gridTemplateColumns: {
-              xs: "1fr",
-              sm: "repeat(2, minmax(0, 1fr))",
-              lg: "repeat(3, minmax(0, 1fr))",
-            },
-            gap: { xs: 2, md: 2.5 },
-          }}
-        >
-          {trainers.map((trainer) => (
-            <TrainerCard
-              key={trainer.id}
-              name={trainer.name}
-              direction={trainer.direction}
-              image={trainer.image}
-              specialization={trainer.specialization}
-              experience={trainer.experience}
-              description={trainer.description}
-            />
-          ))}
-        </Box>
+        {/* Загрузка данных */}
+        {loading && (
+          <Box
+            sx={{
+              minHeight: 260,
+              display: "flex",
+              justifyContent: "center",
+              alignItems: "center",
+            }}
+          >
+            <CircularProgress />
+          </Box>
+        )}
+
+        {/* Ошибка загрузки */}
+        {!loading && error && (
+          <Alert
+            severity="error"
+            action={
+              <Button
+                color="inherit"
+                size="small"
+                onClick={() => setReloadKey((value) => value + 1)}
+                sx={{ textTransform: "none" }}
+              >
+                Повторить
+              </Button>
+            }
+          >
+            {error}
+          </Alert>
+        )}
+
+        {/* Нет тренеров */}
+        {!loading && !error && trainers.length === 0 && (
+          <Box
+            sx={{
+              bgcolor: "#FFFFFF",
+              border: "1px solid #DCE7F3",
+              borderRadius: "16px",
+              textAlign: "center",
+              py: 8,
+              px: 3,
+            }}
+          >
+            <Typography
+              sx={{
+                color: "#0A2456",
+                fontSize: 22,
+                fontWeight: 700,
+                mb: 1,
+              }}
+            >
+              Тренеры пока не добавлены
+            </Typography>
+
+            <Typography sx={{ color: "#6B819E" }}>
+              Информация о специалистах клуба скоро появится.
+            </Typography>
+          </Box>
+        )}
+
+        {/* Карточки настоящих тренеров */}
+        {!loading && !error && trainers.length > 0 && (
+          <Box
+            sx={{
+              display: "grid",
+              gridTemplateColumns: {
+                xs: "1fr",
+                sm: "repeat(2, minmax(0, 1fr))",
+                lg: "repeat(3, minmax(0, 1fr))",
+              },
+              gap: { xs: 2, md: 2.5 },
+            }}
+          >
+            {trainers.map((trainer) => (
+              <TrainerCard
+                key={trainer.id}
+                name={trainer.display_name}
+                direction={trainer.direction}
+                specialization={trainer.specialization}
+                experience={`${trainer.experience_years} лет`}
+                description={trainer.description}
+                image={trainer.photo_url ?? undefined}
+              />
+            ))}
+          </Box>
+        )}
       </Container>
     </Box>
   );
