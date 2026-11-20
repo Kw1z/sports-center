@@ -43,8 +43,10 @@ from schemas import (
     UserRegister,
     UserResponse,
     UserMeResponse,
+    UserPasswordChange,
     UserLogin,
     TokenResponse,
+    UserProfileUpdate,
     ServiceResponse,
     SessionResponse,
     BookingCreate,
@@ -386,6 +388,128 @@ def get_my_profile(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
+    role_code = db.scalar(
+        select(Role.code).where(
+            Role.id == current_user.role_id
+        )
+    )
+
+    return UserMeResponse(
+        id=current_user.id,
+        full_name=current_user.full_name,
+        email=current_user.email,
+        phone=current_user.phone,
+        is_active=current_user.is_active,
+        role=role_code,
+    )
+
+
+# Смена пароля текущего пользователя
+@app.patch("/api/auth/password")
+def change_my_password(
+    data: UserPasswordChange,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    # Проверяем текущий пароль
+    if not verify_password(
+        data.current_password,
+        current_user.password_hash
+    ):
+        raise HTTPException(
+            status_code=400,
+            detail="Неверный текущий пароль"
+        )
+
+    # Новый пароль должен отличаться от старого
+    if data.current_password == data.new_password:
+        raise HTTPException(
+            status_code=400,
+            detail="Новый пароль должен отличаться от текущего"
+        )
+
+    # Сохраняем только хеш нового пароля
+    current_user.password_hash = hash_password(
+        data.new_password
+    )
+
+    db.commit()
+
+    return {
+        "message": "Пароль успешно изменён"
+    }
+
+
+# Редактирование собственного профиля
+@app.patch(
+    "/api/auth/me",
+    response_model=UserMeResponse
+)
+def update_my_profile(
+    data: UserProfileUpdate,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    # Берём только поля, которые пользователь отправил
+    changes = data.model_dump(exclude_unset=True)
+
+    # Изменяем имя
+    if "full_name" in changes:
+        name = changes["full_name"]
+
+        if name is None or not name.strip():
+            raise HTTPException(
+                status_code=422,
+                detail="Имя не может быть пустым"
+            )
+
+        current_user.full_name = name.strip()
+
+    # Изменяем email
+    if "email" in changes:
+        if changes["email"] is None:
+            raise HTTPException(
+                status_code=422,
+                detail="Email не может быть пустым"
+            )
+
+        email = str(changes["email"]).strip().lower()
+
+        existing_user = db.scalar(
+            select(User).where(
+                func.lower(User.email) == email,
+                User.id != current_user.id
+            )
+        )
+
+        if existing_user is not None:
+            raise HTTPException(
+                status_code=409,
+                detail="Этот email уже занят"
+            )
+
+        current_user.email = email
+
+    # Изменяем телефон
+    if "phone" in changes:
+        phone = changes["phone"]
+        current_user.phone = (
+            phone.strip() if phone is not None else None
+        )
+
+    # Сохраняем изменения
+    try:
+        db.commit()
+        db.refresh(current_user)
+
+    except IntegrityError as exc:
+        db.rollback()
+        raise HTTPException(
+            status_code=409,
+            detail="Не удалось сохранить email: возможно, он уже занят"
+        ) from exc
+
+    # Получаем роль пользователя
     role_code = db.scalar(
         select(Role.code).where(
             Role.id == current_user.role_id
