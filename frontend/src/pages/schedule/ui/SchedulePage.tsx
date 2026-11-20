@@ -16,7 +16,9 @@ import {
   Chip,
   CircularProgress,
   Container,
+  IconButton,
   LinearProgress,
+  Slider,
   Snackbar,
   Typography,
 } from "@mui/material";
@@ -27,6 +29,8 @@ import PersonOutlineOutlinedIcon from "@mui/icons-material/PersonOutlineOutlined
 import ArrowForwardIcon from "@mui/icons-material/ArrowForward";
 import EventBusyOutlinedIcon from "@mui/icons-material/EventBusyOutlined";
 import CheckCircleOutlineOutlinedIcon from "@mui/icons-material/CheckCircleOutlineOutlined";
+import ChevronLeftIcon from "@mui/icons-material/ChevronLeft";
+import ChevronRightIcon from "@mui/icons-material/ChevronRight";
 
 import { Header } from "../../../widgets/header/ui/Header";
 
@@ -39,7 +43,13 @@ import {
 
 import { bookingsApi } from "../../../shared/api/bookings";
 
-// Дата YYYY-MM-DD
+// Количество недель для просмотра вперёд
+const MAX_WEEK_OFFSET = 8;
+
+// Интервал обновления расписания (30 секунд)
+const REFRESH_INTERVAL = 30000;
+
+// Формат даты YYYY-MM-DD
 const getDateKey = (date: Date): string => {
   const year = date.getFullYear();
   const month = String(date.getMonth() + 1).padStart(2, "0");
@@ -48,7 +58,42 @@ const getDateKey = (date: Date): string => {
   return `${year}-${month}-${day}`;
 };
 
-// Время занятия
+// Получение ближайшего понедельника.
+//
+// Например:
+// Сегодня пятница, 20 ноября 2026 года.
+// Первая неделя: 23–29 ноября.
+//
+// При переключении ползунка:
+// weekOffset = 1 -> 30 ноября – 6 декабря
+// weekOffset = 2 -> 7–13 декабря
+const getDayWithOffset = (
+  weekOffset: number,
+  dayOffset = 0
+): Date => {
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+
+  // 0 = воскресенье, 1 = понедельник
+  const dayOfWeek = today.getDay();
+
+  // Дни до ближайшего понедельника
+  // Если сегодня понедельник, берём сегодня
+  const daysUntilMonday = (8 - dayOfWeek) % 7;
+
+  const date = new Date(today);
+
+  date.setDate(
+    today.getDate() +
+      daysUntilMonday +
+      weekOffset * 7 +
+      dayOffset
+  );
+
+  return date;
+};
+
+// Форматирование времени
 const formatTime = (dateString: string): string => {
   return new Date(dateString).toLocaleTimeString("ru-RU", {
     hour: "2-digit",
@@ -56,7 +101,7 @@ const formatTime = (dateString: string): string => {
   });
 };
 
-// Продолжительность
+// Продолжительность занятия в минутах
 const getDuration = (session: TrainingSession): number => {
   const start = new Date(session.starts_at).getTime();
   const end = new Date(session.ends_at).getTime();
@@ -64,33 +109,66 @@ const getDuration = (session: TrainingSession): number => {
   return Math.round((end - start) / 60000);
 };
 
-// Ближайшие 7 дней
-const getNextSevenDays = (): Date[] => {
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
+// Подпись выбранной недели
+const getWeekLabel = (weekOffset: number): string => {
+  if (weekOffset === 0) {
+    return "Ближайшая неделя";
+  }
 
-  return Array.from({ length: 7 }, (_, index) => {
-    const date = new Date(today);
-    date.setDate(today.getDate() + index);
-    return date;
-  });
+  if (weekOffset === 1) {
+    return "Через неделю";
+  }
+
+  return `Через ${weekOffset} недель`;
 };
 
+// Форматирование диапазона дат недели
+const getWeekDateRange = (days: Date[]): string => {
+  if (days.length === 0) {
+    return "";
+  }
+
+  const firstDay = days[0];
+  const lastDay = days[days.length - 1];
+
+  const start = firstDay.toLocaleDateString("ru-RU", {
+    day: "numeric",
+    month: "long",
+  });
+
+  const end = lastDay.toLocaleDateString("ru-RU", {
+    day: "numeric",
+    month: "long",
+    year: "numeric",
+  });
+
+  return `${start} — ${end}`;
+};
+
+// Тип уведомления
 type Notification = {
   message: string;
   severity: "success" | "error" | "info";
 };
 
-// Индикатор мест на занятии
+// Компонент отображения свободных мест
 const SessionAvailability = ({
   session,
 }: {
   session: TrainingSession;
 }) => {
-  const { capacity, booked_count, available_spots } = session;
+  const {
+    capacity,
+    booked_count,
+    available_spots,
+  } = session;
 
-  // Не подменяем отсутствующие данные выдуманными числами
-  if (booked_count === null || available_spots === null) {
+  if (
+    booked_count === null ||
+    booked_count === undefined ||
+    available_spots === null ||
+    available_spots === undefined
+  ) {
     return (
       <Typography
         sx={{
@@ -121,25 +199,16 @@ const SessionAvailability = ({
         minWidth: { xs: 0, sm: 190 },
       }}
     >
-      <Box
+      <Typography
         sx={{
-          display: "flex",
-          justifyContent: "space-between",
-          alignItems: "center",
-          gap: 1,
+          fontSize: 13,
+          fontWeight: 600,
+          color: "#102B52",
           mb: 1,
         }}
       >
-        <Typography
-          sx={{
-            fontSize: 13,
-            fontWeight: 600,
-            color: "#102B52",
-          }}
-        >
-          Записалось: {booked} из {total}
-        </Typography>
-      </Box>
+        Записалось: {booked} из {total}
+      </Typography>
 
       <LinearProgress
         variant="determinate"
@@ -171,45 +240,85 @@ const SessionAvailability = ({
   );
 };
 
+// Основная страница расписания
 export const SchedulePage = () => {
   const navigate = useNavigate();
   const auth = useContext(AuthContext);
 
-  const [sessions, setSessions] = useState<TrainingSession[]>([]);
+  // Список тренировок
+  const [sessions, setSessions] = useState<
+    TrainingSession[]
+  >([]);
 
+  // Выбранная дата:
+  // первый день ближайшей недели (понедельник)
   const [selectedDate, setSelectedDate] = useState(
-    getDateKey(new Date())
+    () => getDateKey(getDayWithOffset(0))
   );
 
-  const [selectedService, setSelectedService] = useState("all");
+  // Смещение недель: от 0 до 8
+  const [weekOffset, setWeekOffset] = useState(0);
 
+  // Выбранное направление
+  const [selectedService, setSelectedService] =
+    useState("all");
+
+  // Состояние загрузки
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
-  const [bookingSessionId, setBookingSessionId] = useState<
-    number | null
-  >(null);
+  // Занятие, на которое выполняется запись
+  const [bookingSessionId, setBookingSessionId] =
+    useState<number | null>(null);
 
-  const [bookedSessionIds, setBookedSessionIds] = useState<
-    number[]
-  >([]);
+  // Занятия, на которые пользователь уже записан
+  const [bookedSessionIds, setBookedSessionIds] =
+    useState<number[]>([]);
 
-  const [notification, setNotification] = useState<
-    Notification | null
-  >(null);
+  // Уведомление
+  const [notification, setNotification] =
+    useState<Notification | null>(null);
 
-  // Получение актуальной заполненности занятий
+  // Семь дней выбранной недели
+  const days = useMemo(() => {
+    return Array.from({ length: 7 }, (_, index) =>
+      getDayWithOffset(weekOffset, index)
+    );
+  }, [weekOffset]);
+
+  // Выбранный диапазон дат
+  const weekDateRange = useMemo(() => {
+    return getWeekDateRange(days);
+  }, [days]);
+
+  // Переключение недели ползунком или стрелками
+  const changeWeek = (offset: number) => {
+    const nextOffset = Math.max(
+      0,
+      Math.min(MAX_WEEK_OFFSET, offset)
+    );
+
+    setWeekOffset(nextOffset);
+
+    // После смены недели выделяем понедельник
+    const monday = getDayWithOffset(nextOffset);
+
+    setSelectedDate(getDateKey(monday));
+  };
+
+  // Обновление расписания с сервера
   const refreshSessions = useCallback(async () => {
     const data = await sessionsApi.getAll();
+
     setSessions(data);
     setError("");
   }, []);
 
-  // Первая загрузка расписания
+  // Первоначальная загрузка расписания
   useEffect(() => {
     let cancelled = false;
 
-    const load = async () => {
+    const loadSessions = async () => {
       try {
         const data = await sessionsApi.getAll();
 
@@ -218,10 +327,15 @@ export const SchedulePage = () => {
           setError("");
         }
       } catch (err) {
-        console.error("Ошибка расписания:", err);
+        console.error(
+          "Ошибка загрузки расписания:",
+          err
+        );
 
         if (!cancelled) {
-          setError("Не удалось загрузить расписание занятий.");
+          setError(
+            "Не удалось загрузить расписание занятий."
+          );
         }
       } finally {
         if (!cancelled) {
@@ -230,15 +344,14 @@ export const SchedulePage = () => {
       }
     };
 
-    void load();
+    void loadSessions();
 
     return () => {
       cancelled = true;
     };
   }, []);
 
-  // Обновляем количество мест каждые 30 секунд
-  // и при возвращении на вкладку
+  // Автоматическое обновление свободных мест
   useEffect(() => {
     const refresh = () => {
       if (document.visibilityState !== "visible") {
@@ -246,23 +359,38 @@ export const SchedulePage = () => {
       }
 
       void refreshSessions().catch((err) => {
-        console.error("Не удалось обновить места:", err);
+        console.error(
+          "Не удалось обновить расписание:",
+          err
+        );
       });
     };
 
-    const interval = window.setInterval(refresh, 30000);
+    const interval = window.setInterval(
+      refresh,
+      REFRESH_INTERVAL
+    );
 
-    document.addEventListener("visibilitychange", refresh);
+    document.addEventListener(
+      "visibilitychange",
+      refresh
+    );
+
     window.addEventListener("focus", refresh);
 
     return () => {
       window.clearInterval(interval);
-      document.removeEventListener("visibilitychange", refresh);
+
+      document.removeEventListener(
+        "visibilitychange",
+        refresh
+      );
+
       window.removeEventListener("focus", refresh);
     };
   }, [refreshSessions]);
 
-  // Получаем записи текущего пользователя
+  // Получаем бронирования пользователя
   useEffect(() => {
     if (auth?.isLoading) {
       return;
@@ -279,20 +407,24 @@ export const SchedulePage = () => {
 
     const loadMyBookings = async () => {
       try {
-        const bookings = await bookingsApi.getMyBookings(token);
+        const bookings =
+          await bookingsApi.getMyBookings(token);
 
         if (!cancelled) {
           const reservedIds = bookings
             .filter(
-              (booking) => booking.status === "reserved"
+              (booking) =>
+                booking.status === "reserved"
             )
-            .map((booking) => booking.session_id);
+            .map(
+              (booking) => booking.session_id
+            );
 
           setBookedSessionIds(reservedIds);
         }
       } catch (err) {
         console.error(
-          "Не удалось загрузить мои записи:",
+          "Не удалось загрузить записи:",
           err
         );
       }
@@ -305,10 +437,7 @@ export const SchedulePage = () => {
     };
   }, [auth?.token, auth?.isLoading]);
 
-  // Дни календаря
-  const days = useMemo(() => getNextSevenDays(), []);
-
-  // Доступные направления
+  // Направления тренировок
   const services = useMemo(() => {
     const names = sessions.map(
       (session) => session.service_name
@@ -319,22 +448,28 @@ export const SchedulePage = () => {
     );
   }, [sessions]);
 
-  // Фильтрация занятий
+  // Фильтрация тренировок
   const filteredSessions = useMemo(() => {
     const now = Date.now();
 
     return sessions
       .filter((session) => {
-        const startsAt = new Date(session.starts_at);
+        const startsAt = new Date(
+          session.starts_at
+        );
 
+        // Совпадает выбранный день
         const matchesDate =
           getDateKey(startsAt) === selectedDate;
 
+        // Совпадает направление
         const matchesService =
           selectedService === "all" ||
           session.service_name === selectedService;
 
-        const isUpcoming = startsAt.getTime() > now;
+        // Занятие ещё не началось
+        const isUpcoming =
+          startsAt.getTime() > now;
 
         return (
           matchesDate &&
@@ -347,7 +482,11 @@ export const SchedulePage = () => {
           new Date(a.starts_at).getTime() -
           new Date(b.starts_at).getTime()
       );
-  }, [sessions, selectedDate, selectedService]);
+  }, [
+    sessions,
+    selectedDate,
+    selectedService,
+  ]);
 
   // Запись на тренировку
   const handleBooking = async (sessionId: number) => {
@@ -359,17 +498,23 @@ export const SchedulePage = () => {
       return;
     }
 
-    // Для записи нужна авторизация
-    if (!auth?.isAuthenticated || !auth.token) {
+    // Если пользователь не авторизован
+    if (
+      !auth?.isAuthenticated ||
+      !auth.token
+    ) {
       navigate("/login");
       return;
     }
 
+    // Повторная запись запрещена
     if (bookedSessionIds.includes(sessionId)) {
       setNotification({
-        message: "Вы уже записались на это занятие.",
+        message:
+          "Вы уже записались на это занятие.",
         severity: "info",
       });
+
       return;
     }
 
@@ -377,25 +522,29 @@ export const SchedulePage = () => {
       (item) => item.id === sessionId
     );
 
+    // Проверяем доступность занятия
     if (
       !session ||
       session.status !== "open" ||
       session.available_spots === 0
     ) {
       setNotification({
-        message: "На это занятие сейчас нельзя записаться.",
+        message:
+          "На это занятие сейчас нельзя записаться.",
         severity: "error",
       });
+
       return;
     }
 
     setBookingSessionId(sessionId);
 
     try {
-      const booking = await bookingsApi.createBooking(
-        sessionId,
-        auth.token
-      );
+      const booking =
+        await bookingsApi.createBooking(
+          sessionId,
+          auth.token
+        );
 
       if (booking.status === "reserved") {
         setBookedSessionIds((prev) =>
@@ -405,12 +554,14 @@ export const SchedulePage = () => {
         );
 
         setNotification({
-          message: "Вы успешно записались на занятие!",
+          message:
+            "Вы успешно записались на занятие!",
           severity: "success",
         });
       } else {
         setNotification({
-          message: `Запись создана. Статус: ${booking.status}`,
+          message:
+            `Запись создана. Статус: ${booking.status}`,
           severity: "info",
         });
       }
@@ -423,8 +574,7 @@ export const SchedulePage = () => {
         severity: "error",
       });
     } finally {
-      // Перечитываем данные backend независимо
-      // от результата записи
+      // Обновляем количество свободных мест
       try {
         await refreshSessions();
       } catch (err) {
@@ -452,12 +602,19 @@ export const SchedulePage = () => {
           maxWidth={false}
           sx={{
             maxWidth: "1440px",
-            px: { xs: 2, sm: 3, lg: "48px" },
-            pt: { xs: 4, lg: 5 },
+            px: {
+              xs: 2,
+              sm: 3,
+              lg: "48px",
+            },
+            pt: {
+              xs: 4,
+              lg: 5,
+            },
             pb: 8,
           }}
         >
-          {/* Заголовок */}
+          {/* Заголовок страницы */}
           <Box sx={{ mb: 5 }}>
             <Typography
               sx={{
@@ -475,7 +632,10 @@ export const SchedulePage = () => {
               component="h1"
               sx={{
                 color: "#0A2456",
-                fontSize: { xs: 32, md: 44 },
+                fontSize: {
+                  xs: 32,
+                  md: 44,
+                },
                 fontWeight: 800,
                 mb: 2,
               }}
@@ -486,7 +646,10 @@ export const SchedulePage = () => {
             <Typography
               sx={{
                 color: "#6B819E",
-                fontSize: { xs: 15, md: 18 },
+                fontSize: {
+                  xs: 15,
+                  md: 18,
+                },
                 fontWeight: 700,
                 lineHeight: 1.6,
               }}
@@ -497,15 +660,19 @@ export const SchedulePage = () => {
             </Typography>
           </Box>
 
+          {/* Основная карточка расписания */}
           <Box
             sx={{
               bgcolor: "#FFFFFF",
               border: "1px solid #DCE7F3",
               borderRadius: "24px",
-              p: { xs: 2, md: 4 },
+              p: {
+                xs: 2,
+                md: 4,
+              },
             }}
           >
-            {/* Календарь */}
+            {/* Заголовок календаря */}
             <Box
               sx={{
                 display: "flex",
@@ -533,6 +700,7 @@ export const SchedulePage = () => {
               </Typography>
             </Box>
 
+            {/* Календарь: понедельник — воскресенье */}
             <Box
               sx={{
                 display: "grid",
@@ -541,11 +709,12 @@ export const SchedulePage = () => {
                   sm: "repeat(7, minmax(0, 1fr))",
                 },
                 gap: 1.5,
-                mb: 5,
+                mb: 3,
               }}
             >
               {days.map((date) => {
                 const dateKey = getDateKey(date);
+
                 const isSelected =
                   selectedDate === dateKey;
 
@@ -581,17 +750,23 @@ export const SchedulePage = () => {
                       },
                     }}
                   >
+                    {/* Название дня */}
                     <Typography
                       sx={{
                         fontSize: 13,
+                        fontWeight: 500,
                         textTransform: "capitalize",
                       }}
                     >
-                      {date.toLocaleDateString("ru-RU", {
-                        weekday: "short",
-                      })}
+                      {date.toLocaleDateString(
+                        "ru-RU",
+                        {
+                          weekday: "short",
+                        }
+                      )}
                     </Typography>
 
+                    {/* Число */}
                     <Typography
                       sx={{
                         fontSize: 23,
@@ -601,17 +776,179 @@ export const SchedulePage = () => {
                       {date.getDate()}
                     </Typography>
 
-                    <Typography sx={{ fontSize: 12 }}>
-                      {date.toLocaleDateString("ru-RU", {
-                        month: "short",
-                      })}
+                    {/* Месяц */}
+                    <Typography
+                      sx={{
+                        fontSize: 12,
+                      }}
+                    >
+                      {date.toLocaleDateString(
+                        "ru-RU",
+                        {
+                          month: "short",
+                        }
+                      )}
                     </Typography>
                   </Button>
                 );
               })}
             </Box>
 
-            {/* Направления */}
+            {/* Переключение недель */}
+            <Box
+              sx={{
+                bgcolor: "#F8FBFF",
+                border: "1px solid #E2EBF7",
+                borderRadius: "16px",
+                px: {
+                  xs: 2,
+                  sm: 3,
+                },
+                py: 2,
+                mb: 5,
+              }}
+            >
+              {/* Заголовок ползунка */}
+              <Box
+                sx={{
+                  display: "flex",
+                  justifyContent: "space-between",
+                  alignItems: "center",
+                  flexWrap: "wrap",
+                  gap: 1,
+                  mb: 1,
+                }}
+              >
+                <Typography
+                  sx={{
+                    color: "#102B52",
+                    fontSize: 14,
+                    fontWeight: 700,
+                  }}
+                >
+                  Переключение недель
+                </Typography>
+
+                <Chip
+                  label={getWeekLabel(weekOffset)}
+                  size="small"
+                  sx={{
+                    color: "#176BFF",
+                    bgcolor: "#EAF3FF",
+                    fontWeight: 700,
+                  }}
+                />
+              </Box>
+
+              {/* Стрелки и ползунок */}
+              <Box
+                sx={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: {
+                    xs: 1,
+                    sm: 2,
+                  },
+                }}
+              >
+                {/* Предыдущая неделя */}
+                <IconButton
+                  aria-label="Предыдущая неделя"
+                  disabled={weekOffset === 0}
+                  onClick={() =>
+                    changeWeek(weekOffset - 1)
+                  }
+                  sx={{
+                    border: "1px solid #DCE7F3",
+                    bgcolor: "#FFFFFF",
+                    color: "#176BFF",
+                    borderRadius: "11px",
+                    width: 44,
+                    height: 44,
+                    "&:hover": {
+                      bgcolor: "#EAF3FF",
+                    },
+                  }}
+                >
+                  <ChevronLeftIcon />
+                </IconButton>
+
+                {/* Ползунок выбора недели */}
+                <Box
+                  sx={{
+                    flex: 1,
+                    minWidth: 0,
+                    px: 1,
+                  }}
+                >
+                  <Slider
+                    aria-label="Выбор недели расписания"
+                    value={weekOffset}
+                    min={0}
+                    max={MAX_WEEK_OFFSET}
+                    step={1}
+                    marks
+                    onChange={(_, value) => {
+                      if (
+                        typeof value === "number"
+                      ) {
+                        changeWeek(value);
+                      }
+                    }}
+                    sx={{
+                      color: "#176BFF",
+                      "& .MuiSlider-thumb": {
+                        width: 20,
+                        height: 20,
+                      },
+                      "& .MuiSlider-rail": {
+                        opacity: 1,
+                        bgcolor: "#DCE7F3",
+                      },
+                    }}
+                  />
+                </Box>
+
+                {/* Следующая неделя */}
+                <IconButton
+                  aria-label="Следующая неделя"
+                  disabled={
+                    weekOffset === MAX_WEEK_OFFSET
+                  }
+                  onClick={() =>
+                    changeWeek(weekOffset + 1)
+                  }
+                  sx={{
+                    border: "1px solid #DCE7F3",
+                    bgcolor: "#FFFFFF",
+                    color: "#176BFF",
+                    borderRadius: "11px",
+                    width: 44,
+                    height: 44,
+                    "&:hover": {
+                      bgcolor: "#EAF3FF",
+                    },
+                  }}
+                >
+                  <ChevronRightIcon />
+                </IconButton>
+              </Box>
+
+              {/* Диапазон дат */}
+              <Typography
+                sx={{
+                  color: "#6B819E",
+                  textAlign: "center",
+                  fontSize: 13,
+                  fontWeight: 500,
+                  mt: 1,
+                }}
+              >
+                {weekDateRange}
+              </Typography>
+            </Box>
+
+            {/* Направления тренировок */}
             <Typography
               component="h2"
               sx={{
@@ -682,6 +1019,7 @@ export const SchedulePage = () => {
               ))}
             </Box>
 
+            {/* Разделительная линия */}
             <Box
               sx={{
                 height: "1px",
@@ -703,7 +1041,7 @@ export const SchedulePage = () => {
               </Box>
             )}
 
-            {/* Ошибка */}
+            {/* Ошибка загрузки */}
             {!loading && error && (
               <Alert severity="error" sx={{ mb: 3 }}>
                 {error}
@@ -750,7 +1088,7 @@ export const SchedulePage = () => {
                 </Box>
               )}
 
-            {/* Карточки тренировок */}
+            {/* Список тренировок */}
             {!loading &&
               !error &&
               filteredSessions.length > 0 && (
@@ -934,7 +1272,7 @@ export const SchedulePage = () => {
                           </Box>
                         </Box>
 
-                        {/* Заполненность */}
+                        {/* Заполненность занятия */}
                         <Box
                           sx={{
                             flex: 1,
@@ -953,7 +1291,7 @@ export const SchedulePage = () => {
                           />
                         </Box>
 
-                        {/* Запись */}
+                        {/* Статус и кнопка */}
                         <Box
                           sx={{
                             display: "flex",
@@ -1043,7 +1381,9 @@ export const SchedulePage = () => {
       <Snackbar
         open={notification !== null}
         autoHideDuration={5000}
-        onClose={() => setNotification(null)}
+        onClose={() =>
+          setNotification(null)
+        }
         anchorOrigin={{
           vertical: "bottom",
           horizontal: "center",
