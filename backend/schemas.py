@@ -25,9 +25,32 @@ class UserMeResponse(UserResponse):
     role: str
 
 
+# Данные для редактирования собственного профиля
+class UserProfileUpdate(BaseModel):
+    full_name: str | None = Field(
+        default=None,
+        min_length=2,
+        max_length=120
+    )
+    email: EmailStr | None = None
+    phone: str | None = Field(
+        default=None,
+        max_length=20
+    )
+
+
 class UserLogin(BaseModel):
     email: EmailStr
     password: str = Field(min_length=1)
+
+
+# Данные для смены собственного пароля
+class UserPasswordChange(BaseModel):
+    current_password: str = Field(min_length=1)
+    new_password: str = Field(
+        min_length=8,
+        max_length=128
+    )
 
 
 class TokenResponse(BaseModel):
