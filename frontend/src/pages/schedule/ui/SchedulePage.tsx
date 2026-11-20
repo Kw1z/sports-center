@@ -1,4 +1,12 @@
-import { useContext, useEffect, useMemo, useState } from "react";
+
+import {
+  useCallback,
+  useContext,
+  useEffect,
+  useMemo,
+  useState,
+} from "react";
+
 import { useNavigate } from "react-router-dom";
 
 import {
@@ -8,6 +16,7 @@ import {
   Chip,
   CircularProgress,
   Container,
+  LinearProgress,
   Snackbar,
   Typography,
 } from "@mui/material";
@@ -20,6 +29,7 @@ import EventBusyOutlinedIcon from "@mui/icons-material/EventBusyOutlined";
 import CheckCircleOutlineOutlinedIcon from "@mui/icons-material/CheckCircleOutlineOutlined";
 
 import { Header } from "../../../widgets/header/ui/Header";
+
 import { AuthContext } from "../../../features/authorization/model/AuthProvider";
 
 import {
@@ -29,7 +39,7 @@ import {
 
 import { bookingsApi } from "../../../shared/api/bookings";
 
-// Дата в формате YYYY-MM-DD
+// Дата YYYY-MM-DD
 const getDateKey = (date: Date): string => {
   const year = date.getFullYear();
   const month = String(date.getMonth() + 1).padStart(2, "0");
@@ -46,7 +56,7 @@ const formatTime = (dateString: string): string => {
   });
 };
 
-// Продолжительность занятия
+// Продолжительность
 const getDuration = (session: TrainingSession): number => {
   const start = new Date(session.starts_at).getTime();
   const end = new Date(session.ends_at).getTime();
@@ -54,7 +64,7 @@ const getDuration = (session: TrainingSession): number => {
   return Math.round((end - start) / 60000);
 };
 
-// Ближайшие семь дней
+// Ближайшие 7 дней
 const getNextSevenDays = (): Date[] => {
   const today = new Date();
   today.setHours(0, 0, 0, 0);
@@ -71,27 +81,192 @@ type Notification = {
   severity: "success" | "error" | "info";
 };
 
+// Индикатор мест на занятии
+const SessionAvailability = ({
+  session,
+}: {
+  session: TrainingSession;
+}) => {
+  const { capacity, booked_count, available_spots } = session;
+
+  // Не подменяем отсутствующие данные выдуманными числами
+  if (booked_count === null || available_spots === null) {
+    return (
+      <Typography
+        sx={{
+          color: "#6B819E",
+          fontSize: 13,
+        }}
+      >
+        Информация о местах уточняется
+      </Typography>
+    );
+  }
+
+  const total = Math.max(0, capacity);
+  const booked = Math.max(0, booked_count);
+  const available = Math.max(0, available_spots);
+
+  const progress =
+    total > 0
+      ? Math.min(100, (booked / total) * 100)
+      : 0;
+
+  const isFull = available === 0;
+
+  return (
+    <Box
+      sx={{
+        width: "100%",
+        minWidth: { xs: 0, sm: 190 },
+      }}
+    >
+      <Box
+        sx={{
+          display: "flex",
+          justifyContent: "space-between",
+          alignItems: "center",
+          gap: 1,
+          mb: 1,
+        }}
+      >
+        <Typography
+          sx={{
+            fontSize: 13,
+            fontWeight: 600,
+            color: "#102B52",
+          }}
+        >
+          Записалось: {booked} из {total}
+        </Typography>
+      </Box>
+
+      <LinearProgress
+        variant="determinate"
+        value={progress}
+        sx={{
+          height: 8,
+          borderRadius: "20px",
+          bgcolor: "#EAF3FF",
+          mb: 1,
+          "& .MuiLinearProgress-bar": {
+            borderRadius: "20px",
+            bgcolor: isFull ? "#E05252" : "#176BFF",
+          },
+        }}
+      />
+
+      <Typography
+        sx={{
+          fontSize: 13,
+          fontWeight: 700,
+          color: isFull ? "#E05252" : "#148C75",
+        }}
+      >
+        {isFull
+          ? "Свободных мест нет"
+          : `Свободно мест: ${available}`}
+      </Typography>
+    </Box>
+  );
+};
+
 export const SchedulePage = () => {
   const navigate = useNavigate();
   const auth = useContext(AuthContext);
 
   const [sessions, setSessions] = useState<TrainingSession[]>([]);
 
-  const [selectedDate, setSelectedDate] = useState(getDateKey(new Date()));
+  const [selectedDate, setSelectedDate] = useState(
+    getDateKey(new Date())
+  );
 
   const [selectedService, setSelectedService] = useState("all");
 
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
-  // ID занятия, на которое сейчас отправляется запись
-  const [bookingSessionId, setBookingSessionId] = useState<number | null>(null);
+  const [bookingSessionId, setBookingSessionId] = useState<
+    number | null
+  >(null);
 
-  // Занятия, на которые удалось записаться
-  const [bookedSessionIds, setBookedSessionIds] = useState<number[]>([]);
+  const [bookedSessionIds, setBookedSessionIds] = useState<
+    number[]
+  >([]);
 
+  const [notification, setNotification] = useState<
+    Notification | null
+  >(null);
+
+  // Получение актуальной заполненности занятий
+  const refreshSessions = useCallback(async () => {
+    const data = await sessionsApi.getAll();
+    setSessions(data);
+    setError("");
+  }, []);
+
+  // Первая загрузка расписания
   useEffect(() => {
-    if (auth?.isLoading) return;
+    let cancelled = false;
+
+    const load = async () => {
+      try {
+        const data = await sessionsApi.getAll();
+
+        if (!cancelled) {
+          setSessions(data);
+          setError("");
+        }
+      } catch (err) {
+        console.error("Ошибка расписания:", err);
+
+        if (!cancelled) {
+          setError("Не удалось загрузить расписание занятий.");
+        }
+      } finally {
+        if (!cancelled) {
+          setLoading(false);
+        }
+      }
+    };
+
+    void load();
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  // Обновляем количество мест каждые 30 секунд
+  // и при возвращении на вкладку
+  useEffect(() => {
+    const refresh = () => {
+      if (document.visibilityState !== "visible") {
+        return;
+      }
+
+      void refreshSessions().catch((err) => {
+        console.error("Не удалось обновить места:", err);
+      });
+    };
+
+    const interval = window.setInterval(refresh, 30000);
+
+    document.addEventListener("visibilitychange", refresh);
+    window.addEventListener("focus", refresh);
+
+    return () => {
+      window.clearInterval(interval);
+      document.removeEventListener("visibilitychange", refresh);
+      window.removeEventListener("focus", refresh);
+    };
+  }, [refreshSessions]);
+
+  // Получаем записи текущего пользователя
+  useEffect(() => {
+    if (auth?.isLoading) {
+      return;
+    }
 
     const token = auth?.token;
 
@@ -108,13 +283,18 @@ export const SchedulePage = () => {
 
         if (!cancelled) {
           const reservedIds = bookings
-            .filter((booking) => booking.status === "reserved")
+            .filter(
+              (booking) => booking.status === "reserved"
+            )
             .map((booking) => booking.session_id);
 
           setBookedSessionIds(reservedIds);
         }
-      } catch (error) {
-        console.error("Не удалось загрузить мои записи:", error);
+      } catch (err) {
+        console.error(
+          "Не удалось загрузить мои записи:",
+          err
+        );
       }
     };
 
@@ -125,52 +305,21 @@ export const SchedulePage = () => {
     };
   }, [auth?.token, auth?.isLoading]);
 
-  // Уведомление
-  const [notification, setNotification] = useState<Notification | null>(null);
-
-  // Загружаем расписание
-  useEffect(() => {
-    let cancelled = false;
-
-    const loadSessions = async () => {
-      try {
-        const data = await sessionsApi.getAll();
-
-        if (!cancelled) {
-          setSessions(data);
-          setError("");
-        }
-      } catch (err) {
-        console.error("Ошибка загрузки расписания:", err);
-
-        if (!cancelled) {
-          setError("Не удалось загрузить расписание занятий.");
-        }
-      } finally {
-        if (!cancelled) {
-          setLoading(false);
-        }
-      }
-    };
-
-    void loadSessions();
-
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-
-  // Дни для календаря
+  // Дни календаря
   const days = useMemo(() => getNextSevenDays(), []);
 
-  // Направления из backend
+  // Доступные направления
   const services = useMemo(() => {
-    const names = sessions.map((session) => session.service_name);
+    const names = sessions.map(
+      (session) => session.service_name
+    );
 
-    return [...new Set(names)].sort((a, b) => a.localeCompare(b, "ru"));
+    return [...new Set(names)].sort((a, b) =>
+      a.localeCompare(b, "ru")
+    );
   }, [sessions]);
 
-  // Фильтруем занятия
+  // Фильтрация занятий
   const filteredSessions = useMemo(() => {
     const now = Date.now();
 
@@ -178,39 +327,44 @@ export const SchedulePage = () => {
       .filter((session) => {
         const startsAt = new Date(session.starts_at);
 
-        const matchesDate = getDateKey(startsAt) === selectedDate;
+        const matchesDate =
+          getDateKey(startsAt) === selectedDate;
 
         const matchesService =
-          selectedService === "all" || session.service_name === selectedService;
+          selectedService === "all" ||
+          session.service_name === selectedService;
 
         const isUpcoming = startsAt.getTime() > now;
 
-        return matchesDate && matchesService && isUpcoming;
+        return (
+          matchesDate &&
+          matchesService &&
+          isUpcoming
+        );
       })
       .sort(
         (a, b) =>
-          new Date(a.starts_at).getTime() - new Date(b.starts_at).getTime(),
+          new Date(a.starts_at).getTime() -
+          new Date(b.starts_at).getTime()
       );
   }, [sessions, selectedDate, selectedService]);
 
-  // Настоящее бронирование через backend
+  // Запись на тренировку
   const handleBooking = async (sessionId: number) => {
     if (bookingSessionId !== null) {
       return;
     }
 
-    // Дожидаемся восстановления авторизации
     if (auth?.isLoading) {
       return;
     }
 
-    // Гость должен сначала войти
+    // Для записи нужна авторизация
     if (!auth?.isAuthenticated || !auth.token) {
       navigate("/login");
       return;
     }
 
-    // Защита от повторного нажатия
     if (bookedSessionIds.includes(sessionId)) {
       setNotification({
         message: "Вы уже записались на это занятие.",
@@ -219,15 +373,35 @@ export const SchedulePage = () => {
       return;
     }
 
+    const session = sessions.find(
+      (item) => item.id === sessionId
+    );
+
+    if (
+      !session ||
+      session.status !== "open" ||
+      session.available_spots === 0
+    ) {
+      setNotification({
+        message: "На это занятие сейчас нельзя записаться.",
+        severity: "error",
+      });
+      return;
+    }
+
     setBookingSessionId(sessionId);
 
     try {
-      // POST /api/bookings
-      const booking = await bookingsApi.createBooking(sessionId, auth.token);
+      const booking = await bookingsApi.createBooking(
+        sessionId,
+        auth.token
+      );
 
       if (booking.status === "reserved") {
         setBookedSessionIds((prev) =>
-          prev.includes(sessionId) ? prev : [...prev, sessionId],
+          prev.includes(sessionId)
+            ? prev
+            : [...prev, sessionId]
         );
 
         setNotification({
@@ -241,14 +415,25 @@ export const SchedulePage = () => {
         });
       }
     } catch (err) {
-      const message =
-        err instanceof Error ? err.message : "Не удалось записаться на занятие";
-
       setNotification({
-        message,
+        message:
+          err instanceof Error
+            ? err.message
+            : "Не удалось записаться на занятие",
         severity: "error",
       });
     } finally {
+      // Перечитываем данные backend независимо
+      // от результата записи
+      try {
+        await refreshSessions();
+      } catch (err) {
+        console.error(
+          "Не удалось обновить количество мест:",
+          err
+        );
+      }
+
       setBookingSessionId(null);
     }
   };
@@ -304,18 +489,14 @@ export const SchedulePage = () => {
                 fontSize: { xs: 15, md: 18 },
                 fontWeight: 700,
                 lineHeight: 1.6,
-                whiteSpace: {
-                  xs: "normal",
-                  lg: "nowrap",
-                },
               }}
             >
-              Выбирай удобный день, находи любимые направления и планируй
-              тренировки в своём ритме.
+              Выбирай удобный день, находи любимые
+              направления и планируй тренировки
+              в своём ритме.
             </Typography>
           </Box>
 
-          {/* Основной блок */}
           <Box
             sx={{
               bgcolor: "#FFFFFF",
@@ -324,7 +505,7 @@ export const SchedulePage = () => {
               p: { xs: 2, md: 4 },
             }}
           >
-            {/* Выбор даты */}
+            {/* Календарь */}
             <Box
               sx={{
                 display: "flex",
@@ -352,7 +533,6 @@ export const SchedulePage = () => {
               </Typography>
             </Box>
 
-            {/* Семь ближайших дней */}
             <Box
               sx={{
                 display: "grid",
@@ -366,13 +546,20 @@ export const SchedulePage = () => {
             >
               {days.map((date) => {
                 const dateKey = getDateKey(date);
-                const isSelected = selectedDate === dateKey;
+                const isSelected =
+                  selectedDate === dateKey;
 
                 return (
                   <Button
                     key={dateKey}
-                    variant={isSelected ? "contained" : "outlined"}
-                    onClick={() => setSelectedDate(dateKey)}
+                    variant={
+                      isSelected
+                        ? "contained"
+                        : "outlined"
+                    }
+                    onClick={() =>
+                      setSelectedDate(dateKey)
+                    }
                     sx={{
                       display: "flex",
                       flexDirection: "column",
@@ -380,18 +567,23 @@ export const SchedulePage = () => {
                       py: 2,
                       borderRadius: "14px",
                       borderColor: "#DCE7F3",
-                      bgcolor: isSelected ? "#176BFF" : "#F8FBFF",
-                      color: isSelected ? "#FFFFFF" : "#0A2456",
+                      bgcolor: isSelected
+                        ? "#176BFF"
+                        : "#F8FBFF",
+                      color: isSelected
+                        ? "#FFFFFF"
+                        : "#0A2456",
                       textTransform: "none",
                       "&:hover": {
-                        bgcolor: isSelected ? "#0F57D9" : "#EAF3FF",
+                        bgcolor: isSelected
+                          ? "#0F57D9"
+                          : "#EAF3FF",
                       },
                     }}
                   >
                     <Typography
                       sx={{
                         fontSize: 13,
-                        fontWeight: 500,
                         textTransform: "capitalize",
                       }}
                     >
@@ -419,7 +611,7 @@ export const SchedulePage = () => {
               })}
             </Box>
 
-            {/* Фильтры */}
+            {/* Направления */}
             <Typography
               component="h2"
               sx={{
@@ -443,9 +635,19 @@ export const SchedulePage = () => {
               <Chip
                 label="Все занятия"
                 clickable
-                onClick={() => setSelectedService("all")}
-                color={selectedService === "all" ? "primary" : "default"}
-                variant={selectedService === "all" ? "filled" : "outlined"}
+                onClick={() =>
+                  setSelectedService("all")
+                }
+                color={
+                  selectedService === "all"
+                    ? "primary"
+                    : "default"
+                }
+                variant={
+                  selectedService === "all"
+                    ? "filled"
+                    : "outlined"
+                }
                 sx={{
                   fontWeight: 600,
                   px: 1,
@@ -458,12 +660,18 @@ export const SchedulePage = () => {
                   key={serviceName}
                   label={serviceName}
                   clickable
-                  onClick={() => setSelectedService(serviceName)}
+                  onClick={() =>
+                    setSelectedService(serviceName)
+                  }
                   color={
-                    selectedService === serviceName ? "primary" : "default"
+                    selectedService === serviceName
+                      ? "primary"
+                      : "default"
                   }
                   variant={
-                    selectedService === serviceName ? "filled" : "outlined"
+                    selectedService === serviceName
+                      ? "filled"
+                      : "outlined"
                   }
                   sx={{
                     fontWeight: 600,
@@ -482,7 +690,7 @@ export const SchedulePage = () => {
               }}
             />
 
-            {/* Загрузка расписания */}
+            {/* Загрузка */}
             {loading && (
               <Box
                 sx={{
@@ -495,280 +703,343 @@ export const SchedulePage = () => {
               </Box>
             )}
 
-            {/* Ошибка загрузки */}
+            {/* Ошибка */}
             {!loading && error && (
-              <Typography color="error" sx={{ py: 3 }}>
+              <Alert severity="error" sx={{ mb: 3 }}>
                 {error}
-              </Typography>
+              </Alert>
             )}
 
-            {/* Нет занятий */}
-            {!loading && !error && filteredSessions.length === 0 && (
-              <Box
-                sx={{
-                  textAlign: "center",
-                  py: 7,
-                }}
-              >
-                <EventBusyOutlinedIcon
+            {/* Пустое расписание */}
+            {!loading &&
+              !error &&
+              filteredSessions.length === 0 && (
+                <Box
                   sx={{
-                    fontSize: 52,
-                    color: "#A8BCD3",
-                    mb: 2,
-                  }}
-                />
-
-                <Typography
-                  sx={{
-                    fontSize: 21,
-                    fontWeight: 700,
-                    color: "#0A2456",
-                    mb: 1,
+                    textAlign: "center",
+                    py: 7,
                   }}
                 >
-                  На этот день занятий нет
-                </Typography>
+                  <EventBusyOutlinedIcon
+                    sx={{
+                      fontSize: 52,
+                      color: "#A8BCD3",
+                      mb: 2,
+                    }}
+                  />
 
-                <Typography sx={{ color: "#6B819E" }}>
-                  Попробуй выбрать другую дату или направление.
-                </Typography>
-              </Box>
-            )}
+                  <Typography
+                    sx={{
+                      fontSize: 21,
+                      fontWeight: 700,
+                      color: "#0A2456",
+                      mb: 1,
+                    }}
+                  >
+                    На этот день занятий нет
+                  </Typography>
 
-            {/* Занятия */}
-            {!loading && !error && filteredSessions.length > 0 && (
-              <Box
-                sx={{
-                  display: "flex",
-                  flexDirection: "column",
-                  gap: 2,
-                }}
-              >
-                {filteredSessions.map((session) => {
-                  const canBook = session.status === "open";
+                  <Typography
+                    sx={{
+                      color: "#6B819E",
+                    }}
+                  >
+                    Попробуй выбрать другую дату
+                    или направление.
+                  </Typography>
+                </Box>
+              )}
 
-                  const isBooking = bookingSessionId === session.id;
+            {/* Карточки тренировок */}
+            {!loading &&
+              !error &&
+              filteredSessions.length > 0 && (
+                <Box
+                  sx={{
+                    display: "flex",
+                    flexDirection: "column",
+                    gap: 2,
+                  }}
+                >
+                  {filteredSessions.map((session) => {
+                    const isBooking =
+                      bookingSessionId === session.id;
 
-                  const isBooked = bookedSessionIds.includes(session.id);
+                    const isBooked =
+                      bookedSessionIds.includes(
+                        session.id
+                      );
 
-                  return (
-                    <Box
-                      key={session.id}
-                      sx={{
-                        display: "flex",
-                        alignItems: {
-                          xs: "flex-start",
-                          md: "center",
-                        },
-                        flexDirection: {
-                          xs: "column",
-                          md: "row",
-                        },
-                        justifyContent: "space-between",
-                        gap: 3,
-                        p: 3,
-                        border: "1px solid #DCE7F3",
-                        borderRadius: "17px",
-                        transition: "box-shadow 0.2s, transform 0.2s",
-                        "&:hover": {
-                          transform: "translateY(-2px)",
-                          boxShadow: "0 8px 20px rgba(10,36,86,0.07)",
-                        },
-                      }}
-                    >
-                      {/* Время и название */}
+                    const isFull =
+                      session.available_spots === 0;
+
+                    const canBook =
+                      session.status === "open" &&
+                      !isFull;
+
+                    return (
                       <Box
+                        key={session.id}
                         sx={{
                           display: "flex",
-                          alignItems: "center",
-                          gap: 2,
-                        }}
-                      >
-                        <Box
-                          sx={{
-                            bgcolor: "#EAF3FF",
-                            color: "#176BFF",
-                            borderRadius: "13px",
-                            py: 2,
-                            px: 2.5,
-                            textAlign: "center",
-                            minWidth: 110,
-                          }}
-                        >
-                          <Typography
-                            sx={{
-                              fontSize: 23,
-                              fontWeight: 800,
-                            }}
-                          >
-                            {formatTime(session.starts_at)}
-                          </Typography>
-
-                          <Typography
-                            sx={{
-                              fontSize: 12,
-                              fontWeight: 500,
-                            }}
-                          >
-                            {formatTime(session.ends_at)}
-                          </Typography>
-                        </Box>
-
-                        <Box>
-                          <Typography
-                            component="h3"
-                            sx={{
-                              fontSize: 21,
-                              fontWeight: 700,
-                              color: "#0A2456",
-                              mb: 1,
-                            }}
-                          >
-                            {session.service_name}
-                          </Typography>
-
-                          <Typography
-                            sx={{
-                              fontSize: 14,
-                              color: "#6B819E",
-                            }}
-                          >
-                            {getDuration(session)} мин
-                          </Typography>
-                        </Box>
-                      </Box>
-
-                      {/* Зал и тренер */}
-                      <Box
-                        sx={{
-                          display: "flex",
-                          flexDirection: "column",
-                          gap: 1.3,
-                          minWidth: {
-                            xs: "auto",
-                            md: 230,
-                          },
-                        }}
-                      >
-                        <Box
-                          sx={{
-                            display: "flex",
-                            alignItems: "center",
-                            gap: 1,
-                          }}
-                        >
-                          <LocationOnOutlinedIcon
-                            sx={{
-                              fontSize: 20,
-                              color: "#176BFF",
-                            }}
-                          />
-
-                          <Typography
-                            sx={{
-                              fontSize: 14,
-                              color: "#6B819E",
-                            }}
-                          >
-                            {session.room_name}
-                          </Typography>
-                        </Box>
-
-                        <Box
-                          sx={{
-                            display: "flex",
-                            alignItems: "center",
-                            gap: 1,
-                          }}
-                        >
-                          <PersonOutlineOutlinedIcon
-                            sx={{
-                              fontSize: 20,
-                              color: "#176BFF",
-                            }}
-                          />
-
-                          <Typography
-                            sx={{
-                              fontSize: 14,
-                              color: "#6B819E",
-                            }}
-                          >
-                            {session.staff_name || "Тренер не назначен"}
-                          </Typography>
-                        </Box>
-                      </Box>
-
-                      {/* Статус и запись */}
-                      <Box
-                        sx={{
-                          display: "flex",
-                          flexDirection: "column",
                           alignItems: {
-                            xs: "flex-start",
-                            md: "flex-end",
+                            xs: "stretch",
+                            lg: "center",
                           },
-                          gap: 1.5,
+                          flexDirection: {
+                            xs: "column",
+                            lg: "row",
+                          },
+                          justifyContent:
+                            "space-between",
+                          gap: 3,
+                          p: 3,
+                          border:
+                            "1px solid #DCE7F3",
+                          borderRadius: "17px",
+                          transition:
+                            "box-shadow 0.2s, transform 0.2s",
+                          "&:hover": {
+                            transform:
+                              "translateY(-2px)",
+                            boxShadow:
+                              "0 8px 20px rgba(10,36,86,0.07)",
+                          },
                         }}
                       >
-                        <Chip
-                          size="small"
-                          label={
-                            isBooked
-                              ? "Вы записаны"
-                              : canBook
-                                ? "Запись открыта"
-                                : "Запись недоступна"
-                          }
-                          color={isBooked || canBook ? "success" : "default"}
-                          variant="outlined"
-                        />
-
-                        <Button
-                          variant="contained"
-                          disabled={
-                            !canBook ||
-                            isBooked ||
-                            bookingSessionId !== null ||
-                            Boolean(auth?.isLoading)
-                          }
-                          endIcon={
-                            isBooked ? (
-                              <CheckCircleOutlineOutlinedIcon />
-                            ) : (
-                              <ArrowForwardIcon />
-                            )
-                          }
-                          onClick={() => void handleBooking(session.id)}
+                        {/* Время и название */}
+                        <Box
                           sx={{
-                            borderRadius: "11px",
-                            textTransform: "none",
-                            fontWeight: 600,
-                            px: 2.5,
-                            py: 1.2,
-                            bgcolor: "#176BFF",
-                            "&:hover": {
-                              bgcolor: "#0F57D9",
+                            display: "flex",
+                            alignItems: "center",
+                            gap: 2,
+                            flex: 1,
+                            minWidth: 0,
+                          }}
+                        >
+                          <Box
+                            sx={{
+                              bgcolor: "#EAF3FF",
+                              color: "#176BFF",
+                              borderRadius: "13px",
+                              py: 2,
+                              px: 2.5,
+                              textAlign: "center",
+                              minWidth: 110,
+                            }}
+                          >
+                            <Typography
+                              sx={{
+                                fontSize: 23,
+                                fontWeight: 800,
+                              }}
+                            >
+                              {formatTime(
+                                session.starts_at
+                              )}
+                            </Typography>
+
+                            <Typography
+                              sx={{
+                                fontSize: 12,
+                              }}
+                            >
+                              {formatTime(
+                                session.ends_at
+                              )}
+                            </Typography>
+                          </Box>
+
+                          <Box sx={{ minWidth: 0 }}>
+                            <Typography
+                              component="h3"
+                              sx={{
+                                fontSize: 20,
+                                fontWeight: 700,
+                                color: "#0A2456",
+                                mb: 1,
+                              }}
+                            >
+                              {session.service_name}
+                            </Typography>
+
+                            <Typography
+                              sx={{
+                                fontSize: 14,
+                                color: "#6B819E",
+                              }}
+                            >
+                              {getDuration(session)} мин
+                            </Typography>
+                          </Box>
+                        </Box>
+
+                        {/* Зал и тренер */}
+                        <Box
+                          sx={{
+                            display: "flex",
+                            flexDirection: "column",
+                            gap: 1.3,
+                            flex: 1,
+                            minWidth: 0,
+                          }}
+                        >
+                          <Box
+                            sx={{
+                              display: "flex",
+                              alignItems: "center",
+                              gap: 1,
+                            }}
+                          >
+                            <LocationOnOutlinedIcon
+                              sx={{
+                                fontSize: 20,
+                                color: "#176BFF",
+                              }}
+                            />
+
+                            <Typography
+                              sx={{
+                                fontSize: 14,
+                                color: "#6B819E",
+                              }}
+                            >
+                              {session.room_name}
+                            </Typography>
+                          </Box>
+
+                          <Box
+                            sx={{
+                              display: "flex",
+                              alignItems: "center",
+                              gap: 1,
+                            }}
+                          >
+                            <PersonOutlineOutlinedIcon
+                              sx={{
+                                fontSize: 20,
+                                color: "#176BFF",
+                              }}
+                            />
+
+                            <Typography
+                              sx={{
+                                fontSize: 14,
+                                color: "#6B819E",
+                              }}
+                            >
+                              {session.staff_name ||
+                                "Тренер не назначен"}
+                            </Typography>
+                          </Box>
+                        </Box>
+
+                        {/* Заполненность */}
+                        <Box
+                          sx={{
+                            flex: 1,
+                            minWidth: {
+                              xs: 0,
+                              lg: 190,
+                            },
+                            maxWidth: {
+                              xs: "100%",
+                              lg: 230,
                             },
                           }}
                         >
-                          {isBooking
-                            ? "Записываем..."
-                            : isBooked
-                              ? "Вы записаны"
-                              : "Записаться"}
-                        </Button>
+                          <SessionAvailability
+                            session={session}
+                          />
+                        </Box>
+
+                        {/* Запись */}
+                        <Box
+                          sx={{
+                            display: "flex",
+                            flexDirection: "column",
+                            alignItems: {
+                              xs: "stretch",
+                              lg: "flex-end",
+                            },
+                            gap: 1.5,
+                            minWidth: 145,
+                          }}
+                        >
+                          <Chip
+                            size="small"
+                            label={
+                              isBooked
+                                ? "Вы записаны"
+                                : isFull
+                                  ? "Мест нет"
+                                  : canBook
+                                    ? "Запись открыта"
+                                    : "Запись недоступна"
+                            }
+                            color={
+                              isBooked
+                                ? "success"
+                                : isFull
+                                  ? "error"
+                                  : canBook
+                                    ? "success"
+                                    : "default"
+                            }
+                            variant="outlined"
+                          />
+
+                          <Button
+                            variant="contained"
+                            disabled={
+                              !canBook ||
+                              isBooked ||
+                              bookingSessionId !== null ||
+                              Boolean(auth?.isLoading)
+                            }
+                            endIcon={
+                              isBooked ? (
+                                <CheckCircleOutlineOutlinedIcon />
+                              ) : (
+                                <ArrowForwardIcon />
+                              )
+                            }
+                            onClick={() =>
+                              void handleBooking(
+                                session.id
+                              )
+                            }
+                            sx={{
+                              borderRadius: "11px",
+                              textTransform: "none",
+                              fontWeight: 600,
+                              px: 2.5,
+                              py: 1.2,
+                              bgcolor: "#176BFF",
+                              "&:hover": {
+                                bgcolor: "#0F57D9",
+                              },
+                            }}
+                          >
+                            {isBooking
+                              ? "Записываем..."
+                              : isBooked
+                                ? "Вы записаны"
+                                : isFull
+                                  ? "Мест нет"
+                                  : "Записаться"}
+                          </Button>
+                        </Box>
                       </Box>
-                    </Box>
-                  );
-                })}
-              </Box>
-            )}
+                    );
+                  })}
+                </Box>
+              )}
           </Box>
         </Container>
       </Box>
 
-      {/* Уведомление о результате */}
+      {/* Уведомления */}
       <Snackbar
         open={notification !== null}
         autoHideDuration={5000}
@@ -779,8 +1050,12 @@ export const SchedulePage = () => {
         }}
       >
         <Alert
-          severity={notification?.severity ?? "info"}
-          onClose={() => setNotification(null)}
+          severity={
+            notification?.severity ?? "info"
+          }
+          onClose={() =>
+            setNotification(null)
+          }
           variant="filled"
           sx={{
             width: "100%",

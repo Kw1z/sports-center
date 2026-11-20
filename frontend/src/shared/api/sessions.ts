@@ -11,11 +11,17 @@ export type TrainingSession = {
   ends_at: string;
   capacity: number;
   status: string;
+
+  // Данные о заполненности из backend
+  booked_count: number | null;
+  available_spots: number | null;
 };
 
 export const sessionsApi = {
   getAll: async (): Promise<TrainingSession[]> => {
-    const response = await fetch("/api/sessions");
+    const response = await fetch("/api/sessions", {
+      cache: "no-store",
+    });
 
     if (!response.ok) {
       throw new Error("Не удалось загрузить расписание");
@@ -25,7 +31,9 @@ export const sessionsApi = {
   },
 
   getById: async (id: number): Promise<TrainingSession> => {
-    const response = await fetch(`/api/sessions/${id}`);
+    const response = await fetch(`/api/sessions/${id}`, {
+      cache: "no-store",
+    });
 
     if (!response.ok) {
       throw new Error("Не удалось загрузить занятие");
