@@ -20,6 +20,10 @@ class UserResponse(BaseModel):
     phone: str | None
     is_active: bool
 
+# Данные текущего пользователя вместе с его ролью
+class UserMeResponse(UserResponse):
+    role: str
+
 
 class UserLogin(BaseModel):
     email: EmailStr
@@ -48,6 +52,7 @@ class ServiceResponse(BaseModel):
 
 
 
+
 class SessionResponse(BaseModel):
     id: int
     service_id: int
@@ -60,6 +65,13 @@ class SessionResponse(BaseModel):
     ends_at: datetime
     capacity: int
     status: str
+
+    # Количество занятых мест
+    booked_count: int | None = None
+
+    # Количество свободных мест
+    available_spots: int | None = None
+
 
 
 class BookingCreate(BaseModel):
@@ -178,6 +190,7 @@ class RoomStatusUpdate(BaseModel):
 
 
 # Данные сотрудника для административного API
+
 class StaffResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -186,6 +199,8 @@ class StaffResponse(BaseModel):
     display_name: str
     position: str
     is_active: bool
+    photo_url: str | None
+
 
 
 # Данные для создания нового сотрудника
