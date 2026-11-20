@@ -1,11 +1,20 @@
 
+from uuid import uuid4
+
+
+from pathlib import Path
+from fastapi.staticfiles import StaticFiles
+
+
 from datetime import datetime, timezone
 
 
 from fastapi.middleware.cors import CORSMiddleware
 
 
-from fastapi import FastAPI, HTTPException, Depends
+
+from fastapi import FastAPI, HTTPException, Depends, UploadFile, File
+
 from fastapi.security import (
     HTTPBearer,
     HTTPAuthorizationCredentials,
@@ -33,6 +42,7 @@ from models import (
 from schemas import (
     UserRegister,
     UserResponse,
+    UserMeResponse,
     UserLogin,
     TokenResponse,
     ServiceResponse,
@@ -75,6 +85,82 @@ app = FastAPI(
     description="Backend спортивного центра BluePulse",
     version="0.2.0",
 )
+
+# Папка для загруженных фотографий сотрудников
+STATIC_DIR = Path(__file__).resolve().parent / "static"
+STAFF_PHOTOS_DIR = STATIC_DIR / "staff"
+
+# Создаём папки автоматически, если их ещё нет
+STAFF_PHOTOS_DIR.mkdir(parents=True, exist_ok=True)
+
+# Разрешаем браузеру открывать загруженные файлы
+app.mount(
+    "/static",
+    StaticFiles(directory=str(STATIC_DIR)),
+    name="static",
+)
+
+
+# Максимальный размер фотографии — 5 МБ
+MAX_STAFF_PHOTO_SIZE = 5 * 1024 * 1024
+
+
+# Проверяем загружаемую фотографию
+async def validate_staff_photo(
+    photo: UploadFile,
+) -> tuple[bytes, str]:
+
+    allowed_types = {
+        "image/jpeg": ".jpg",
+        "image/png": ".png",
+        "image/webp": ".webp",
+    }
+
+    if photo.content_type not in allowed_types:
+        raise HTTPException(
+            status_code=415,
+            detail="Разрешены только JPG, PNG и WebP",
+        )
+
+    # Читаем не больше 5 МБ + 1 байт
+    content = await photo.read(MAX_STAFF_PHOTO_SIZE + 1)
+
+    if len(content) > MAX_STAFF_PHOTO_SIZE:
+        raise HTTPException(
+            status_code=413,
+            detail="Фотография должна быть не больше 5 МБ",
+        )
+
+    if not content:
+        raise HTTPException(
+            status_code=422,
+            detail="Файл пустой",
+        )
+
+    # Проверяем сигнатуру файла, а не только его название
+    is_jpeg = content.startswith(b"\xff\xd8\xff")
+    is_png = content.startswith(b"\x89PNG\r\n\x1a\n")
+    is_webp = (
+        len(content) >= 12
+        and content[:4] == b"RIFF"
+        and content[8:12] == b"WEBP"
+    )
+
+    valid_image = (
+        (photo.content_type == "image/jpeg" and is_jpeg)
+        or (photo.content_type == "image/png" and is_png)
+        or (photo.content_type == "image/webp" and is_webp)
+    )
+
+    if not valid_image:
+        raise HTTPException(
+            status_code=422,
+            detail="Содержимое файла не соответствует формату",
+        )
+
+    extension = allowed_types[photo.content_type]
+
+    return content, extension
 
 
 # Разрешаем Frontend BluePulse обращаться к Backend
@@ -291,15 +377,30 @@ def get_current_user(
     return user
 
 
-# Личный кабинет текущего пользователя
+
 @app.get(
     "/api/auth/me",
-    response_model=UserResponse
+    response_model=UserMeResponse
 )
 def get_my_profile(
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
 ):
-    return current_user
+    role_code = db.scalar(
+        select(Role.code).where(
+            Role.id == current_user.role_id
+        )
+    )
+
+    return UserMeResponse(
+        id=current_user.id,
+        full_name=current_user.full_name,
+        email=current_user.email,
+        phone=current_user.phone,
+        is_active=current_user.is_active,
+        role=role_code,
+    )
+
 
 
 @app.get(
@@ -336,7 +437,26 @@ def get_service(
 
 
 # Общий запрос для получения занятий
+
+# Общий запрос для получения занятий
 def sessions_query():
+    # Считаем бронирования для каждого занятия.
+    # Отменённые бронирования не занимают места.
+    booked_counts = (
+        select(
+            Booking.session_id,
+            func.count(Booking.id).label("booked_count"),
+        )
+        .where(Booking.status != "cancelled")
+        .group_by(Booking.session_id)
+        .subquery()
+    )
+
+    # Если бронирований нет, считаем, что занято 0 мест.
+    booked_count = func.coalesce(
+        booked_counts.c.booked_count, 0
+    )
+
     return (
         select(
             TrainingSession.id,
@@ -350,6 +470,12 @@ def sessions_query():
             TrainingSession.ends_at,
             TrainingSession.capacity,
             TrainingSession.status,
+
+            # Новые поля
+            booked_count.label("booked_count"),
+            (
+                TrainingSession.capacity - booked_count
+            ).label("available_spots"),
         )
         .join(
             Service,
@@ -363,7 +489,12 @@ def sessions_query():
             Staff,
             TrainingSession.staff_id == Staff.id
         )
+        .outerjoin(
+            booked_counts,
+            booked_counts.c.session_id == TrainingSession.id
+        )
     )
+
 
 
 # Получить список предстоящих занятий
@@ -1248,6 +1379,76 @@ def get_admin_staff(
     ).all()
 
     return employees
+
+
+# Загрузка фотографии сотрудника администратором
+@app.post(
+    "/api/admin/staff/{staff_id}/photo",
+    response_model=StaffResponse,
+)
+async def upload_admin_staff_photo(
+    staff_id: int,
+    photo: UploadFile = File(...),
+    admin: User = Depends(get_current_admin),
+    db: Session = Depends(get_db),
+):
+    # Проверяем существование сотрудника
+    employee = db.get(Staff, staff_id)
+
+    if employee is None:
+        raise HTTPException(
+            status_code=404,
+            detail="Сотрудник не найден",
+        )
+
+    # Проверяем фотографию
+    content, extension = await validate_staff_photo(photo)
+
+    # Создаём уникальное имя файла
+    filename = f"{uuid4().hex}{extension}"
+    new_file = STAFF_PHOTOS_DIR / filename
+    new_url = f"/static/staff/{filename}"
+
+    # Запоминаем старую фотографию
+    old_url = employee.photo_url
+
+    # Сохраняем новый файл
+    try:
+        new_file.write_bytes(content)
+    except OSError:
+        raise HTTPException(
+            status_code=500,
+            detail="Не удалось сохранить фотографию",
+        )
+
+    # Сохраняем адрес фотографии в PostgreSQL
+    employee.photo_url = new_url
+
+    try:
+        db.commit()
+    except SQLAlchemyError:
+        db.rollback()
+        new_file.unlink(missing_ok=True)
+
+        raise HTTPException(
+            status_code=500,
+            detail="Не удалось обновить фотографию сотрудника",
+        )
+
+    # Удаляем старую фотографию после успешного обновления
+    if old_url and old_url.startswith("/static/staff/"):
+        old_filename = old_url.removeprefix("/static/staff/")
+
+        if Path(old_filename).name == old_filename:
+            old_file = STAFF_PHOTOS_DIR / old_filename
+
+            try:
+                old_file.unlink(missing_ok=True)
+            except OSError:
+                pass
+
+    return employee
+
 
 
 # Создание нового сотрудника администратором
