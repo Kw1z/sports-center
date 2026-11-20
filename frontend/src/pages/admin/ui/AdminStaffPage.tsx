@@ -17,25 +17,18 @@ import {
   Typography,
 } from "@mui/material";
 
-import { AppTextField } from "../../../shared/ui/AppTextField";
 import { KpiCard } from "../../../shared/ui/KpiCard/KpiCard";
 
 import {
   adminApi,
   type AdminService,
   type AdminStaff,
+  type CreateStaffData,
 } from "../../../shared/api/admin";
 
 import { StaffPhotoUpload } from "./StaffPhotoUpload";
 
-const tableColumns = [
-  "Сотрудник",
-  "Специализация",
-  "Услуги",
-  "Статус",
-  "Действия",
-];
-
+// Общие стили
 const inputSx = {
   "& .MuiOutlinedInput-root": {
     borderRadius: "11px",
@@ -73,27 +66,327 @@ const secondaryButtonSx = {
   },
 };
 
-const FieldLabel = ({
-  children,
-}: {
-  children: string;
-}) => (
-  <Typography
-    component="label"
-    sx={{
-      display: "block",
-      color: "#102B52",
-      fontSize: 14,
-      fontWeight: 600,
-      mb: "10px",
-    }}
-  >
-    {children}
-  </Typography>
-);
+// Поля формы профиля
+type StaffForm = {
+  display_name: string;
+  position: string;
+  code: string;
+  direction: string;
+  specialization: string;
+  experience_years: string;
+  description: string;
+};
 
+// Пустая форма
+const emptyStaffForm = (): StaffForm => ({
+  display_name: "",
+  position: "",
+  code: "",
+  direction: "",
+  specialization: "",
+  experience_years: "",
+  description: "",
+});
+
+// Преобразование ответа backend в форму
+const staffToForm = (employee: AdminStaff): StaffForm => ({
+  display_name: employee.display_name,
+  position: employee.position,
+  code: employee.code ?? "",
+  direction: employee.direction ?? "",
+  specialization: employee.specialization ?? "",
+  experience_years:
+    employee.experience_years === null
+      ? ""
+      : String(employee.experience_years),
+  description: employee.description ?? "",
+});
+
+// Проверяем заполненность профиля тренера
+const isProfileComplete = (employee: AdminStaff) =>
+  employee.is_active &&
+  Boolean(employee.code?.trim()) &&
+  Boolean(employee.direction?.trim()) &&
+  Boolean(employee.specialization?.trim()) &&
+  employee.experience_years !== null &&
+  Boolean(employee.description?.trim());
+
+// Проверяем форму перед отправкой
+const validateStaffForm = (form: StaffForm): string => {
+  if (!form.display_name.trim()) {
+    return "Укажите имя сотрудника";
+  }
+
+  if (form.display_name.trim().length > 100) {
+    return "Имя не должно превышать 100 символов";
+  }
+
+  if (!form.position.trim()) {
+    return "Укажите должность сотрудника";
+  }
+
+  if (form.position.trim().length > 100) {
+    return "Должность не должна превышать 100 символов";
+  }
+
+  // Профиль можно оставить полностью пустым,
+  // если сотрудник пока не готов для каталога.
+  const profileValues = [
+    form.code,
+    form.direction,
+    form.specialization,
+    form.experience_years,
+    form.description,
+  ];
+
+  const hasProfileData = profileValues.some(
+    (value) => value.trim() !== ""
+  );
+
+  if (!hasProfileData) {
+    return "";
+  }
+
+  if (profileValues.some((value) => !value.trim())) {
+    return (
+      "Для появления в разделе «Наши тренеры» " +
+      "заполните все поля профиля"
+    );
+  }
+
+  if (!/^[a-z0-9_]{1,40}$/.test(form.code.trim())) {
+    return (
+      "Код должен содержать от 1 до 40 символов: " +
+      "маленькие латинские буквы, цифры и _"
+    );
+  }
+
+  if (form.direction.trim().length > 80) {
+    return "Направление не должно превышать 80 символов";
+  }
+
+  if (form.specialization.trim().length > 120) {
+    return "Специализация не должна превышать 120 символов";
+  }
+
+  const experience = Number(form.experience_years.trim());
+
+  if (
+    !/^\d+$/.test(form.experience_years.trim()) ||
+    !Number.isInteger(experience) ||
+    experience < 0 ||
+    experience > 100
+  ) {
+    return "Стаж должен быть целым числом от 0 до 100";
+  }
+
+  return "";
+};
+
+// Формируем объект для API
+const formToPayload = (form: StaffForm): CreateStaffData => ({
+  display_name: form.display_name.trim(),
+  position: form.position.trim(),
+
+  code: form.code.trim() || null,
+  direction: form.direction.trim() || null,
+  specialization: form.specialization.trim() || null,
+
+  experience_years: form.experience_years.trim()
+    ? Number(form.experience_years.trim())
+    : null,
+
+  description: form.description.trim() || null,
+});
+
+// Поля создания/редактирования сотрудника
+type StaffFieldsProps = {
+  value: StaffForm;
+  onChange: (value: StaffForm) => void;
+};
+
+const StaffFields = ({
+  value,
+  onChange,
+}: StaffFieldsProps) => {
+  const changeField = (
+    field: keyof StaffForm,
+    newValue: string
+  ) => {
+    onChange({
+      ...value,
+      [field]: newValue,
+    });
+  };
+
+  return (
+    <Box sx={{ mt: 1 }}>
+      <Box
+        sx={{
+          display: "grid",
+          gridTemplateColumns: {
+            xs: "1fr",
+            sm: "1fr 1fr",
+          },
+          gap: 2,
+          mb: 3,
+        }}
+      >
+        <TextField
+          label="Имя сотрудника"
+          value={value.display_name}
+          onChange={(event) =>
+            changeField("display_name", event.target.value)
+          }
+          required
+          fullWidth
+          autoFocus
+          sx={inputSx}
+        />
+
+        <TextField
+          label="Должность"
+          value={value.position}
+          onChange={(event) =>
+            changeField("position", event.target.value)
+          }
+          placeholder="Инструктор"
+          required
+          fullWidth
+          sx={inputSx}
+        />
+      </Box>
+
+      <Box
+        sx={{
+          borderTop: "1px solid #DCE7F3",
+          pt: 3,
+          mb: 2,
+        }}
+      >
+        <Typography
+          sx={{
+            color: "#102B52",
+            fontSize: 18,
+            fontWeight: 700,
+            mb: 1,
+          }}
+        >
+          Профиль тренера
+        </Typography>
+
+        <Typography
+          sx={{
+            color: "#6B819E",
+            fontSize: 13,
+            lineHeight: 1.6,
+            mb: 3,
+          }}
+        >
+          Заполните все поля ниже, чтобы активный
+          сотрудник мог появиться на странице
+          «Наши тренеры». Если профиль пока не
+          нужен, оставьте эти поля пустыми.
+        </Typography>
+
+        <Box sx={{ mb: 2 }}>
+          <TextField
+            label="Уникальный код тренера"
+            value={value.code}
+            onChange={(event) =>
+              changeField(
+                "code",
+                event.target.value.toLowerCase()
+              )
+            }
+            placeholder="ivan_petrov"
+            helperText="Латинские буквы a-z, цифры и _"
+            fullWidth
+            sx={inputSx}
+          />
+        </Box>
+
+        <Box
+          sx={{
+            display: "grid",
+            gridTemplateColumns: {
+              xs: "1fr",
+              sm: "1fr 1fr",
+            },
+            gap: 2,
+            mb: 2,
+          }}
+        >
+          <TextField
+            label="Направление"
+            value={value.direction}
+            onChange={(event) =>
+              changeField("direction", event.target.value)
+            }
+            placeholder="Фитнес"
+            fullWidth
+            sx={inputSx}
+          />
+
+          <TextField
+            label="Специализация тренера"
+            value={value.specialization}
+            onChange={(event) =>
+              changeField(
+                "specialization",
+                event.target.value
+              )
+            }
+            placeholder="Силовые тренировки"
+            fullWidth
+            sx={inputSx}
+          />
+        </Box>
+
+        <Box sx={{ mb: 2 }}>
+          <TextField
+            label="Стаж работы (лет)"
+            type="number"
+            value={value.experience_years}
+            onChange={(event) =>
+              changeField(
+                "experience_years",
+                event.target.value
+              )
+            }
+            slotProps={{
+              htmlInput: {
+                min: 0,
+                max: 100,
+                step: 1,
+              },
+            }}
+            fullWidth
+            sx={inputSx}
+          />
+        </Box>
+
+        <TextField
+          label="Описание тренера"
+          value={value.description}
+          onChange={(event) =>
+            changeField("description", event.target.value)
+          }
+          placeholder="Расскажите об опыте и направлении работы"
+          fullWidth
+          multiline
+          minRows={3}
+          maxRows={7}
+          sx={inputSx}
+        />
+      </Box>
+    </Box>
+  );
+};
+
+// Главная страница сотрудников
 export const AdminStaffPage = () => {
-  // Сотрудники и услуги
+  // Данные из backend
   const [staff, setStaff] = useState<AdminStaff[]>([]);
   const [services, setServices] = useState<AdminService[]>([]);
 
@@ -108,32 +401,33 @@ export const AdminStaffPage = () => {
   const [editStaff, setEditStaff] = useState<AdminStaff | null>(
     null
   );
-
-  const [editName, setEditName] = useState("");
-  const [editPosition, setEditPosition] = useState("");
+  const [editForm, setEditForm] = useState<StaffForm>(
+    emptyStaffForm()
+  );
   const [editActive, setEditActive] = useState(true);
   const [editServiceIds, setEditServiceIds] = useState<number[]>(
     []
   );
-
   const [editError, setEditError] = useState("");
   const [isSavingEdit, setIsSavingEdit] = useState(false);
 
   // Создание сотрудника
   const [isCreateOpen, setIsCreateOpen] = useState(false);
-  const [createName, setCreateName] = useState("");
-  const [createPosition, setCreatePosition] = useState("");
+  const [createForm, setCreateForm] = useState<StaffForm>(
+    emptyStaffForm()
+  );
   const [createError, setCreateError] = useState("");
   const [isCreating, setIsCreating] = useState(false);
 
-  // Создание аккаунта тренера
+  // Аккаунт тренера
   const [accountEmail, setAccountEmail] = useState("");
   const [accountPassword, setAccountPassword] = useState("");
   const [accountError, setAccountError] = useState("");
   const [accountSuccess, setAccountSuccess] = useState("");
-  const [isCreatingAccount, setIsCreatingAccount] = useState(false);
+  const [isCreatingAccount, setIsCreatingAccount] =
+    useState(false);
 
-  // Загружаем сотрудников и услуги
+  // Загрузка сотрудников и услуг
   useEffect(() => {
     let cancelled = false;
 
@@ -213,12 +507,10 @@ export const AdminStaffPage = () => {
 
   const others = staff.length - instructors - masseurs;
 
-  // Открытие настроек сотрудника
+  // Открытие окна настройки
   const openEditDialog = (employee: AdminStaff) => {
     setEditStaff(employee);
-
-    setEditName(employee.display_name);
-    setEditPosition(employee.position);
+    setEditForm(staffToForm(employee));
     setEditActive(employee.is_active);
 
     setEditServiceIds(
@@ -228,16 +520,13 @@ export const AdminStaffPage = () => {
     );
 
     setEditError("");
-
-    // Сбрасываем форму аккаунта
     setAccountEmail("");
     setAccountPassword("");
     setAccountError("");
     setAccountSuccess("");
-    setIsCreatingAccount(false);
   };
 
-  // Закрытие настроек
+  // Закрытие окна
   const closeEditDialog = () => {
     if (isSavingEdit || isCreatingAccount) {
       return;
@@ -245,21 +534,22 @@ export const AdminStaffPage = () => {
 
     setEditStaff(null);
     setEditError("");
-
     setAccountEmail("");
     setAccountPassword("");
     setAccountError("");
     setAccountSuccess("");
   };
 
-  // Сохранение данных сотрудника
+  // Сохранение сотрудника
   const handleSaveEdit = async () => {
-    if (!editStaff || isCreatingAccount) {
+    if (!editStaff || isSavingEdit || isCreatingAccount) {
       return;
     }
 
-    if (!editName.trim() || !editPosition.trim()) {
-      setEditError("Укажите имя и специализацию");
+    const validationError = validateStaffForm(editForm);
+
+    if (validationError) {
+      setEditError(validationError);
       return;
     }
 
@@ -267,26 +557,53 @@ export const AdminStaffPage = () => {
     setEditError("");
 
     try {
+      const data = formToPayload(editForm);
+
       let updated = editStaff;
 
       const hasProfileChanged =
-        editName.trim() !== editStaff.display_name ||
-        editPosition.trim() !== editStaff.position;
+        JSON.stringify(data) !==
+        JSON.stringify({
+          display_name: editStaff.display_name,
+          position: editStaff.position,
+          code: editStaff.code,
+          direction: editStaff.direction,
+          specialization: editStaff.specialization,
+          experience_years: editStaff.experience_years,
+          description: editStaff.description,
+        });
 
       if (hasProfileChanged) {
-        updated = await adminApi.updateStaff(editStaff.id, {
-          display_name: editName.trim(),
-          position: editPosition.trim(),
-        });
+        updated = await adminApi.updateStaff(
+          editStaff.id,
+          data
+        );
+
+        setStaff((prev) =>
+          prev.map((employee) =>
+            employee.id === updated.id ? updated : employee
+          )
+        );
+
+        setEditStaff(updated);
       }
 
-      if (editActive !== editStaff.is_active) {
+      if (editActive !== updated.is_active) {
         updated = await adminApi.updateStaffStatus(
           editStaff.id,
           editActive
         );
+
+        setStaff((prev) =>
+          prev.map((employee) =>
+            employee.id === updated.id ? updated : employee
+          )
+        );
+
+        setEditStaff(updated);
       }
 
+      // Вычисляем изменения в назначенных услугах
       const currentIds = (
         servicesByStaff[editStaff.id] ?? []
       ).map((service) => service.id);
@@ -313,12 +630,6 @@ export const AdminStaffPage = () => {
         );
       }
 
-      setStaff((prev) =>
-        prev.map((employee) =>
-          employee.id === updated.id ? updated : employee
-        )
-      );
-
       const refreshed = await adminApi.getStaffServices(
         editStaff.id
       );
@@ -331,37 +642,44 @@ export const AdminStaffPage = () => {
         })),
       }));
 
-      setEditStaff(null);
+      closeEditDialogAfterSave();
     } catch (err) {
       setEditError(
         err instanceof Error
           ? err.message
-          : "Не удалось сохранить изменения"
+          : "Не удалось сохранить сотрудника"
       );
     } finally {
       setIsSavingEdit(false);
     }
   };
 
-  // Создание нового сотрудника
+  const closeEditDialogAfterSave = () => {
+    setEditStaff(null);
+    setEditError("");
+    setAccountPassword("");
+  };
+
+  // Создание сотрудника
   const handleCreate = async (
     event: FormEvent<HTMLFormElement>
   ) => {
     event.preventDefault();
-    setCreateError("");
 
-    if (!createName.trim() || !createPosition.trim()) {
-      setCreateError("Укажите имя и специализацию");
+    const validationError = validateStaffForm(createForm);
+
+    if (validationError) {
+      setCreateError(validationError);
       return;
     }
 
     setIsCreating(true);
+    setCreateError("");
 
     try {
-      const created = await adminApi.createStaff({
-        display_name: createName.trim(),
-        position: createPosition.trim(),
-      });
+      const created = await adminApi.createStaff(
+        formToPayload(createForm)
+      );
 
       setStaff((prev) => [...prev, created]);
 
@@ -370,9 +688,8 @@ export const AdminStaffPage = () => {
         [created.id]: [],
       }));
 
+      setCreateForm(emptyStaffForm());
       setIsCreateOpen(false);
-      setCreateName("");
-      setCreatePosition("");
     } catch (err) {
       setCreateError(
         err instanceof Error
@@ -384,29 +701,33 @@ export const AdminStaffPage = () => {
     }
   };
 
-  // Создание аккаунта существующего тренера
+  // Создание аккаунта тренера
   const handleCreateAccount = async () => {
-    if (!editStaff || isCreatingAccount || isSavingEdit) {
+    if (
+      !editStaff ||
+      isCreatingAccount ||
+      isSavingEdit
+    ) {
       return;
     }
 
     if (editStaff.user_id !== null) {
-      setAccountError(
-        "У этого сотрудника уже есть учётная запись"
-      );
+      setAccountError("Аккаунт уже создан");
       return;
     }
 
     const email = accountEmail.trim().toLowerCase();
     const password = accountPassword;
 
-    if (!email || !password) {
-      setAccountError("Укажите email и пароль");
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      setAccountError("Введите корректный email");
       return;
     }
 
-    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
-      setAccountError("Введите корректный email");
+    if (password.length < 8 || password.length > 128) {
+      setAccountError(
+        "Пароль должен содержать от 8 до 128 символов"
+      );
       return;
     }
 
@@ -423,30 +744,27 @@ export const AdminStaffPage = () => {
         }
       );
 
-      // Backend должен вернуть ID созданного аккаунта
-      if (updated.user_id === null) {
-        throw new Error(
-          "Сервер не подтвердил привязку аккаунта"
-        );
-      }
-
-      // Обновляем сотрудника в таблице
+      // Обновляем данные сотрудника
       setStaff((prev) =>
         prev.map((employee) =>
           employee.id === updated.id ? updated : employee
         )
       );
 
-      // Обновляем данные открытого окна
       setEditStaff(updated);
-
-      // Пароль больше не храним в состоянии
       setAccountPassword("");
 
-      setAccountSuccess(
-        `Аккаунт для ${updated.display_name} создан. ` +
-        "Теперь тренер может войти на сайт."
-      );
+      if (updated.user_id === null) {
+        setAccountError(
+          "Сервер не подтвердил создание аккаунта. " +
+          "Обновите страницу и проверьте сотрудника."
+        );
+      } else {
+        setAccountSuccess(
+          "Аккаунт создан! Тренер может войти " +
+          "на сайт с указанными данными."
+        );
+      }
     } catch (err) {
       setAccountError(
         err instanceof Error
@@ -499,31 +817,30 @@ export const AdminStaffPage = () => {
               color: "#6B819E",
               fontSize: 16,
               mt: "16px",
-              maxWidth: 1060,
             }}
           >
-            Специалисты клуба и услуги, которые они могут
-            проводить.
+            Специалисты клуба и услуги, которые они
+            могут проводить.
           </Typography>
         </Box>
 
         <Button
           variant="contained"
           onClick={() => {
+            setCreateForm(emptyStaffForm());
             setCreateError("");
             setIsCreateOpen(true);
           }}
           sx={{
             ...primaryButtonSx,
-            px: "15px",
-            fontSize: 15,
+            px: 2,
           }}
         >
           + Добавить сотрудника
         </Button>
       </Box>
 
-      {/* Статистика */}
+      {/* KPI */}
       <Box
         sx={{
           display: "grid",
@@ -565,14 +882,14 @@ export const AdminStaffPage = () => {
         />
       </Box>
 
-      {/* Таблица сотрудников */}
+      {/* Список сотрудников */}
       {isLoading ? (
         <Box
           sx={{
             bgcolor: "#FFFFFF",
             borderRadius: "16px",
             minHeight: 300,
-            mt: { xs: 4, lg: "63px" },
+            mt: 5,
             display: "flex",
             alignItems: "center",
             justifyContent: "center",
@@ -581,54 +898,40 @@ export const AdminStaffPage = () => {
           <CircularProgress />
         </Box>
       ) : error ? (
-        <Box
-          sx={{
-            bgcolor: "#FFFFFF",
-            borderRadius: "16px",
-            minHeight: 300,
-            mt: { xs: 4, lg: "63px" },
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-          }}
-        >
-          <Typography
-            sx={{
-              color: "error.main",
-              fontSize: 16,
-            }}
-          >
-            {error}
-          </Typography>
-        </Box>
+        <Alert severity="error" sx={{ mt: 5 }}>
+          {error}
+        </Alert>
       ) : (
         <Box
           sx={{
             bgcolor: "#FFFFFF",
             borderRadius: "16px",
-            p: "12px",
+            p: 2,
             mt: { xs: 4, lg: "63px" },
           }}
         >
           <Box
             sx={{
+              display: "grid",
+              gridTemplateColumns:
+                "minmax(0, 2fr) minmax(0, 1.5fr) " +
+                "minmax(0, 2fr) minmax(0, 1fr) " +
+                "minmax(0, 1.2fr)",
+              gap: 2,
               bgcolor: "#EAF3FF",
               borderRadius: "9px",
-              minHeight: 46,
-              px: "14px",
-              display: "grid",
-              alignItems: "center",
-              gridTemplateColumns: {
-                xs: "minmax(0, 2fr) minmax(0, 1fr)",
-                lg:
-                  "minmax(0, 260fr) minmax(0, 220fr) " +
-                  "minmax(0, 280fr) minmax(0, 160fr) " +
-                  "minmax(0, 150fr)",
-              },
-              gap: 1,
+              px: 2,
+              py: 1.5,
+              minWidth: 720,
             }}
           >
-            {tableColumns.map((column) => (
+            {[
+              "Сотрудник",
+              "Должность",
+              "Услуги",
+              "Статус",
+              "Действия",
+            ].map((column) => (
               <Typography
                 key={column}
                 sx={{
@@ -642,113 +945,110 @@ export const AdminStaffPage = () => {
             ))}
           </Box>
 
-          {staff.length === 0 ? (
-            <Box
-              sx={{
-                px: "14px",
-                py: "48px",
-                textAlign: "center",
-              }}
-            >
+          <Box sx={{ overflowX: "auto" }}>
+            {staff.length === 0 ? (
               <Typography
                 sx={{
+                  textAlign: "center",
                   color: "#6B819E",
-                  fontSize: 15,
+                  py: 5,
                 }}
               >
-                Сотрудников пока нет — добавьте первого.
+                Сотрудников пока нет.
               </Typography>
-            </Box>
-          ) : (
-            staff.map((employee, index) => (
-              <Box
-                key={employee.id}
-                sx={{
-                  px: "14px",
-                  display: "grid",
-                  alignItems: "center",
-                  gridTemplateColumns: {
-                    xs: "minmax(0, 2fr) minmax(0, 1fr)",
-                    lg:
-                      "minmax(0, 260fr) minmax(0, 220fr) " +
-                      "minmax(0, 280fr) minmax(0, 160fr) " +
-                      "minmax(0, 150fr)",
-                  },
-                  gap: 1,
-                  minHeight: 57,
-                  py: "12px",
-                  borderBottom:
-                    index < staff.length - 1
-                      ? "1px solid #DCE7F3"
-                      : "none",
-                }}
-              >
-                <Typography
+            ) : (
+              staff.map((employee) => (
+                <Box
+                  key={employee.id}
                   sx={{
-                    color: employee.is_active
-                      ? "#102B52"
-                      : "#6B819E",
-                    fontSize: 15,
-                    fontWeight: 600,
+                    display: "grid",
+                    gridTemplateColumns:
+                      "minmax(0, 2fr) minmax(0, 1.5fr) " +
+                      "minmax(0, 2fr) minmax(0, 1fr) " +
+                      "minmax(0, 1.2fr)",
+                    gap: 2,
+                    alignItems: "center",
+                    px: 2,
+                    py: 2,
+                    minWidth: 720,
+                    borderBottom: "1px solid #DCE7F3",
                   }}
                 >
-                  {employee.display_name}
-                </Typography>
+                  <Box>
+                    <Typography
+                      sx={{
+                        color: "#102B52",
+                        fontSize: 15,
+                        fontWeight: 600,
+                      }}
+                    >
+                      {employee.display_name}
+                    </Typography>
 
-                <Typography
-                  sx={{
-                    color: "#6B819E",
-                    fontSize: 15,
-                  }}
-                >
-                  {employee.position}
-                </Typography>
+                    <Typography
+                      sx={{
+                        fontSize: 12,
+                        color: isProfileComplete(employee)
+                          ? "#148C75"
+                          : "#6B819E",
+                        mt: 0.5,
+                      }}
+                    >
+                      {isProfileComplete(employee)
+                        ? "Профиль тренера заполнен"
+                        : "Нет полного профиля тренера"}
+                    </Typography>
+                  </Box>
 
-                <Typography
-                  sx={{
-                    color: "#6B819E",
-                    fontSize: 15,
-                  }}
-                >
-                  {(servicesByStaff[employee.id] ?? [])
-                    .map((service) => service.name)
-                    .join(", ") || "—"}
-                </Typography>
+                  <Typography
+                    sx={{
+                      color: "#6B819E",
+                      fontSize: 15,
+                    }}
+                  >
+                    {employee.position}
+                  </Typography>
 
-                <Typography
-                  sx={{
-                    color: employee.is_active
-                      ? "#148C75"
-                      : "#6B819E",
-                    fontSize: 15,
-                    fontWeight: employee.is_active
-                      ? 600
-                      : 400,
-                  }}
-                >
-                  {employee.is_active
-                    ? "Активен"
-                    : "Неактивен"}
-                </Typography>
+                  <Typography
+                    sx={{
+                      color: "#6B819E",
+                      fontSize: 14,
+                    }}
+                  >
+                    {(servicesByStaff[employee.id] ?? [])
+                      .map((service) => service.name)
+                      .join(", ") || "—"}
+                  </Typography>
 
-                <Box>
+                  <Typography
+                    sx={{
+                      color: employee.is_active
+                        ? "#148C75"
+                        : "#6B819E",
+                      fontSize: 14,
+                      fontWeight: 600,
+                    }}
+                  >
+                    {employee.is_active
+                      ? "Активен"
+                      : "Неактивен"}
+                  </Typography>
+
                   <Button
                     onClick={() => openEditDialog(employee)}
                     sx={{
                       color: "#176BFF",
-                      fontSize: 15,
+                      fontSize: 14,
                       fontWeight: 600,
                       textTransform: "none",
-                      px: 0,
-                      minWidth: 0,
                     }}
                   >
                     Настроить
                   </Button>
                 </Box>
-              </Box>
-            ))
-          )}
+              ))
+            )}
+          </Box>
         </Box>
       )}
 
@@ -757,36 +1057,35 @@ export const AdminStaffPage = () => {
         sx={{
           bgcolor: "#EAF3FF",
           borderRadius: "16px",
-          px: "24px",
-          py: "22px",
-          mt: { xs: 3, lg: "55px" },
+          px: 3,
+          py: 3,
+          mt: 5,
         }}
       >
         <Typography
-          component="h2"
           sx={{
             color: "#102B52",
-            fontSize: 18,
             fontWeight: 700,
+            fontSize: 18,
           }}
         >
-          Связи staff_services
+          Управление сотрудниками
         </Typography>
 
         <Typography
           sx={{
             color: "#6B819E",
-            fontSize: 15,
-            mt: "21px",
-            maxWidth: 1020,
+            fontSize: 14,
+            mt: 1,
           }}
         >
-          Один сотрудник может вести разные занятия. Для услуг
-          без сотрудника назначение необязательно.
+          Для отображения на странице «Наши тренеры»
+          заполните профиль и активируйте сотрудника.
+          Услуги и аккаунт для входа настраиваются отдельно.
         </Typography>
       </Box>
 
-      {/* Окно настройки сотрудника */}
+      {/* Диалог редактирования */}
       <Dialog
         open={editStaff !== null}
         onClose={closeEditDialog}
@@ -820,47 +1119,13 @@ export const AdminStaffPage = () => {
             }}
             noValidate
           >
-            {/* Имя и специализация */}
-            <Box
-              sx={{
-                display: "grid",
-                gridTemplateColumns: {
-                  xs: "1fr",
-                  sm: "1fr 1fr",
-                },
-                columnGap: "20px",
-                mt: "8px",
-              }}
-            >
-              <Box sx={{ mb: "21px" }}>
-                <FieldLabel>Имя</FieldLabel>
+            {/* Поля профиля */}
+            <StaffFields
+              value={editForm}
+              onChange={setEditForm}
+            />
 
-                <AppTextField
-                  value={editName}
-                  onChange={(event) =>
-                    setEditName(event.target.value)
-                  }
-                  fullWidth
-                  autoFocus
-                  sx={inputSx}
-                />
-              </Box>
-
-              <Box sx={{ mb: "21px" }}>
-                <FieldLabel>Специализация</FieldLabel>
-
-                <AppTextField
-                  value={editPosition}
-                  onChange={(event) =>
-                    setEditPosition(event.target.value)
-                  }
-                  fullWidth
-                  sx={inputSx}
-                />
-              </Box>
-            </Box>
-
-            {/* Статус */}
+            {/* Активность */}
             <FormControlLabel
               control={
                 <Switch
@@ -870,17 +1135,8 @@ export const AdminStaffPage = () => {
                   }
                 />
               }
-              label={
-                <Typography
-                  sx={{
-                    color: "#102B52",
-                    fontSize: 14,
-                  }}
-                >
-                  Активен
-                </Typography>
-              }
-              sx={{ mb: "16px" }}
+              label="Активен"
+              sx={{ mb: 2 }}
             />
 
             {/* Фотография */}
@@ -892,16 +1148,24 @@ export const AdminStaffPage = () => {
               />
             )}
 
-            {/* Назначенные услуги */}
-            <FieldLabel>Услуги сотрудника</FieldLabel>
+            {/* Услуги сотрудника */}
+            <Typography
+              sx={{
+                color: "#102B52",
+                fontWeight: 700,
+                fontSize: 15,
+                mb: 2,
+              }}
+            >
+              Услуги сотрудника
+            </Typography>
 
             <Box
               sx={{
                 bgcolor: "#F4F8FE",
                 borderRadius: "11px",
-                px: "12px",
-                py: "8px",
-                mb: "8px",
+                p: 2,
+                mb: 2,
                 maxHeight: 220,
                 overflow: "auto",
               }}
@@ -909,9 +1173,8 @@ export const AdminStaffPage = () => {
               {services.length === 0 ? (
                 <Typography
                   sx={{
-                    color: "#6B819E",
                     fontSize: 14,
-                    py: "8px",
+                    color: "#6B819E",
                   }}
                 >
                   В каталоге нет услуг.
@@ -934,19 +1197,13 @@ export const AdminStaffPage = () => {
                                 )
                           )
                         }
-                        sx={{
-                          color: "#176BFF",
-                          "&.Mui-checked": {
-                            color: "#176BFF",
-                          },
-                        }}
                       />
                     }
                     label={
                       <Typography
                         sx={{
-                          color: "#102B52",
                           fontSize: 14,
+                          color: "#102B52",
                         }}
                       >
                         {service.name} ·{" "}
@@ -958,21 +1215,12 @@ export const AdminStaffPage = () => {
               )}
             </Box>
 
-            {/* Ошибка сохранения */}
             {editError && (
-              <Typography
-                role="alert"
-                sx={{
-                  mt: 1,
-                  fontSize: 13,
-                  color: "error.main",
-                }}
-              >
+              <Alert severity="error" sx={{ mb: 2 }}>
                 {editError}
-              </Typography>
+              </Alert>
             )}
 
-            {/* Сохранение данных сотрудника */}
             <Box
               sx={{
                 display: "flex",
@@ -1008,21 +1256,19 @@ export const AdminStaffPage = () => {
             </Box>
           </Box>
 
-          {/* Создание аккаунта — отдельный блок */}
+          {/* Аккаунт тренера */}
           {editStaff && (
             <Box
               sx={{
                 borderTop: "1px solid #DCE7F3",
-                mt: 2,
                 pt: 3,
                 pb: 2,
               }}
             >
               <Typography
-                component="h3"
                 sx={{
-                  color: "#102B52",
                   fontSize: 18,
+                  color: "#102B52",
                   fontWeight: 700,
                   mb: 1,
                 }}
@@ -1032,14 +1278,13 @@ export const AdminStaffPage = () => {
 
               <Typography
                 sx={{
-                  color: "#6B819E",
                   fontSize: 13,
+                  color: "#6B819E",
                   mb: 2,
-                  lineHeight: 1.6,
                 }}
               >
-                Аккаунт нужен, чтобы сотрудник мог
-                авторизоваться на сайте под ролью тренера.
+                Создайте аккаунт, чтобы тренер мог
+                авторизоваться на сайте.
               </Typography>
 
               {editStaff.user_id !== null ? (
@@ -1055,52 +1300,37 @@ export const AdminStaffPage = () => {
                     p: 2,
                   }}
                 >
-                  <Typography
+                  <TextField
+                    label="Email тренера"
+                    type="email"
+                    value={accountEmail}
+                    onChange={(event) =>
+                      setAccountEmail(event.target.value)
+                    }
+                    fullWidth
+                    autoComplete="off"
+                    disabled={isCreatingAccount}
                     sx={{
-                      color: "#102B52",
-                      fontSize: 14,
-                      fontWeight: 600,
+                      ...inputSx,
                       mb: 2,
                     }}
-                  >
-                    Создать учётную запись
-                  </Typography>
+                  />
 
-                  <Box sx={{ mb: 2 }}>
-                    <FieldLabel>Email тренера</FieldLabel>
-
-                    <TextField
-                      type="email"
-                      value={accountEmail}
-                      onChange={(event) =>
-                        setAccountEmail(event.target.value)
-                      }
-                      fullWidth
-                      autoComplete="off"
-                      placeholder="trainer@example.com"
-                      disabled={isCreatingAccount}
-                      size="small"
-                      sx={inputSx}
-                    />
-                  </Box>
-
-                  <Box sx={{ mb: 2 }}>
-                    <FieldLabel>Пароль</FieldLabel>
-
-                    <TextField
-                      type="password"
-                      value={accountPassword}
-                      onChange={(event) =>
-                        setAccountPassword(event.target.value)
-                      }
-                      fullWidth
-                      autoComplete="new-password"
-                      placeholder="Введите пароль"
-                      disabled={isCreatingAccount}
-                      size="small"
-                      sx={inputSx}
-                    />
-                  </Box>
+                  <TextField
+                    label="Пароль"
+                    type="password"
+                    value={accountPassword}
+                    onChange={(event) =>
+                      setAccountPassword(event.target.value)
+                    }
+                    fullWidth
+                    autoComplete="new-password"
+                    disabled={isCreatingAccount}
+                    sx={{
+                      ...inputSx,
+                      mb: 2,
+                    }}
+                  />
 
                   {accountError && (
                     <Alert
@@ -1120,14 +1350,6 @@ export const AdminStaffPage = () => {
                     }
                     onClick={() =>
                       void handleCreateAccount()
-                    }
-                    startIcon={
-                      isCreatingAccount ? (
-                        <CircularProgress
-                          color="inherit"
-                          size={18}
-                        />
-                      ) : undefined
                     }
                     sx={primaryButtonSx}
                   >
@@ -1151,7 +1373,7 @@ export const AdminStaffPage = () => {
         </DialogContent>
       </Dialog>
 
-      {/* Окно создания сотрудника */}
+      {/* Диалог создания сотрудника */}
       <Dialog
         open={isCreateOpen}
         onClose={() => {
@@ -1186,45 +1408,18 @@ export const AdminStaffPage = () => {
             onSubmit={handleCreate}
             noValidate
           >
-            <Box sx={{ mt: 1, mb: 3 }}>
-              <FieldLabel>Имя</FieldLabel>
-
-              <AppTextField
-                value={createName}
-                onChange={(event) =>
-                  setCreateName(event.target.value)
-                }
-                fullWidth
-                autoFocus
-                sx={inputSx}
-              />
-            </Box>
-
-            <Box sx={{ mb: 3 }}>
-              <FieldLabel>Специализация</FieldLabel>
-
-              <AppTextField
-                value={createPosition}
-                onChange={(event) =>
-                  setCreatePosition(event.target.value)
-                }
-                fullWidth
-                placeholder="Инструктор"
-                sx={inputSx}
-              />
-            </Box>
+            <StaffFields
+              value={createForm}
+              onChange={setCreateForm}
+            />
 
             {createError && (
-              <Typography
-                role="alert"
-                sx={{
-                  mt: 1,
-                  fontSize: 13,
-                  color: "error.main",
-                }}
+              <Alert
+                severity="error"
+                sx={{ mt: 2 }}
               >
                 {createError}
-              </Typography>
+              </Alert>
             )}
 
             <Box
