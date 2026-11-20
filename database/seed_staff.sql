@@ -2,7 +2,6 @@
 -- BluePulse: демонстрационные профили специалистов
 -- Существующие связи сотрудников сохраняются
 
--- Закрепляем коды за двумя тестовыми сотрудниками
 UPDATE public.staff
 SET code = 'anna_smirnova'
 WHERE display_name = 'Анна Тестовая'
@@ -13,7 +12,7 @@ SET code = 'maria_sokolova'
 WHERE display_name = 'Мария Тестовая'
   AND code IS NULL;
 
--- Создаём или обновляем шесть профилей
+-- Шесть тренеров с фотографиями из проекта
 INSERT INTO public.staff (
     code,
     display_name,
@@ -35,7 +34,7 @@ VALUES
     'Йога, дыхательные практики',
     7,
     'Проводит занятия йогой, уделяя внимание правильной технике, дыханию и развитию гибкости.',
-    NULL
+    '/static/trainers/anna_smirnova.webp'
 ),
 (
     'maxim_volkov',
@@ -46,7 +45,7 @@ VALUES
     'Пилатес, укрепление мышц корпуса',
     5,
     'Помогает укреплять мышцы корпуса, улучшать осанку и развивать координацию движений.',
-    NULL
+    '/static/trainers/maxim_volkov.webp'
 ),
 (
     'ekaterina_orlova',
@@ -57,7 +56,7 @@ VALUES
     'Велотренировки, кардионагрузки',
     6,
     'Проводит динамичные кардиотренировки на велотренажёрах с акцентом на выносливость.',
-    NULL
+    '/static/trainers/ekaterina_orlova.webp'
 ),
 (
     'dmitry_kuznetsov',
@@ -68,7 +67,7 @@ VALUES
     'Стретчинг, мобильность суставов',
     8,
     'Помогает развивать гибкость, улучшать подвижность суставов и расслаблять мышцы.',
-    NULL
+    '/static/trainers/dmitry_kuznetsov.webp'
 ),
 (
     'maria_sokolova',
@@ -79,7 +78,7 @@ VALUES
     'Оздоровительный и восстановительный массаж',
     9,
     'Занимается массажем, направленным на расслабление мышц и восстановление после нагрузок.',
-    NULL
+    '/static/trainers/maria_sokolova.webp'
 ),
 (
     'olga_petrova',
@@ -90,7 +89,7 @@ VALUES
     'Оценка физического состояния',
     6,
     'Проводит оценку физического состояния и помогает разобраться в показателях состава тела.',
-    NULL
+    '/static/trainers/olga_petrova.webp'
 )
 ON CONFLICT (code) WHERE code IS NOT NULL
 DO UPDATE SET
