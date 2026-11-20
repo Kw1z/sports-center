@@ -62,6 +62,7 @@ from schemas import (
     ServiceDetailsUpdate,
     StaffResponse,
     StaffCreate,
+    StaffAccountCreate,
     StaffUpdate,
     StaffServiceAssign,
     StaffStatusUpdate,
@@ -1617,6 +1618,107 @@ def create_admin_staff(
             status_code=500,
             detail="Не удалось создать сотрудника"
         )
+
+    return employee
+
+
+# Создание учётной записи для существующего тренера
+@app.post(
+    "/api/admin/staff/{staff_id}/account",
+    response_model=StaffResponse,
+    status_code=201
+)
+def create_admin_staff_account(
+    staff_id: int,
+    data: StaffAccountCreate,
+    admin: User = Depends(get_current_admin),
+    db: Session = Depends(get_db)
+):
+    # Находим тренера и блокируем запись на время операции
+    employee = db.scalar(
+        select(Staff)
+        .where(Staff.id == staff_id)
+        .with_for_update()
+    )
+
+    if employee is None:
+        raise HTTPException(
+            status_code=404,
+            detail="Тренер не найден"
+        )
+
+    # Нельзя создавать второй аккаунт для того же тренера
+    if employee.user_id is not None:
+        raise HTTPException(
+            status_code=409,
+            detail="У тренера уже есть учётная запись"
+        )
+
+    # Находим роль сотрудника
+    staff_role = db.scalar(
+        select(Role).where(Role.code == "staff")
+    )
+
+    if staff_role is None:
+        raise HTTPException(
+            status_code=503,
+            detail="Роль staff не настроена"
+        )
+
+    # Проверяем уникальность email
+    email = str(data.email).strip().lower()
+
+    existing_user = db.scalar(
+        select(User).where(
+            func.lower(User.email) == email
+        )
+    )
+
+    if existing_user is not None:
+        raise HTTPException(
+            status_code=409,
+            detail="Этот email уже занят"
+        )
+
+    # Создаём пользователя с ролью staff
+    new_user = User(
+        role_id=staff_role.id,
+        full_name=employee.display_name,
+        email=email,
+        password_hash=hash_password(data.password),
+        phone=None,
+        is_active=True,
+        created_at=datetime.now(timezone.utc).replace(
+            tzinfo=None
+        )
+    )
+
+    db.add(new_user)
+
+    try:
+        # Получаем ID нового пользователя
+        db.flush()
+
+        # Привязываем аккаунт к карточке тренера
+        employee.user_id = new_user.id
+
+        # Сохраняем обе записи одной транзакцией
+        db.commit()
+        db.refresh(employee)
+
+    except IntegrityError as exc:
+        db.rollback()
+        raise HTTPException(
+            status_code=409,
+            detail="Не удалось создать аккаунт: конфликт данных"
+        ) from exc
+
+    except SQLAlchemyError as exc:
+        db.rollback()
+        raise HTTPException(
+            status_code=500,
+            detail="Не удалось создать аккаунт тренера"
+        ) from exc
 
     return employee
 
