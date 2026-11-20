@@ -1,4 +1,3 @@
-
 import { useEffect, useState, type FormEvent } from "react";
 
 import {
@@ -114,9 +113,7 @@ export const AdminStaffPage = () => {
         const results = await Promise.all(
           staffData.map(async (employee) => {
             try {
-              const assigned = await adminApi.getStaffServices(
-                employee.id
-              );
+              const assigned = await adminApi.getStaffServices(employee.id);
 
               return [
                 employee.id,
@@ -128,7 +125,7 @@ export const AdminStaffPage = () => {
             } catch {
               return [employee.id, []] as const;
             }
-          })
+          }),
         );
 
         if (!cancelled) {
@@ -139,7 +136,7 @@ export const AdminStaffPage = () => {
           setError(
             err instanceof Error
               ? err.message
-              : "Не удалось загрузить сотрудников"
+              : "Не удалось загрузить сотрудников",
           );
         }
       } finally {
@@ -157,16 +154,14 @@ export const AdminStaffPage = () => {
   }, []);
 
   // KPI по специальностям
-  const activeCount = staff.filter(
-    (employee) => employee.is_active
-  ).length;
+  const activeCount = staff.filter((employee) => employee.is_active).length;
 
   const instructors = staff.filter((employee) =>
-    employee.position.toLowerCase().includes("инструктор")
+    employee.position.toLowerCase().includes("инструктор"),
   ).length;
 
   const masseurs = staff.filter((employee) =>
-    employee.position.toLowerCase().includes("массажист")
+    employee.position.toLowerCase().includes("массажист"),
   ).length;
 
   const others = staff.length - instructors - masseurs;
@@ -179,9 +174,7 @@ export const AdminStaffPage = () => {
     setEditActive(employee.is_active);
 
     setEditServiceIds(
-      (servicesByStaff[employee.id] ?? []).map(
-        (service) => service.id
-      )
+      (servicesByStaff[employee.id] ?? []).map((service) => service.id),
     );
 
     setEditError("");
@@ -216,49 +209,34 @@ export const AdminStaffPage = () => {
       }
 
       if (editActive !== editStaff.is_active) {
-        updated = await adminApi.updateStaffStatus(
-          editStaff.id,
-          editActive
-        );
+        updated = await adminApi.updateStaffStatus(editStaff.id, editActive);
       }
 
       // Разница в услугах: добавить новые, снять снятые
-      const currentIds = (
-        servicesByStaff[editStaff.id] ?? []
-      ).map((service) => service.id);
-
-      const toAssign = editServiceIds.filter(
-        (id) => !currentIds.includes(id)
+      const currentIds = (servicesByStaff[editStaff.id] ?? []).map(
+        (service) => service.id,
       );
 
-      const toRemove = currentIds.filter(
-        (id) => !editServiceIds.includes(id)
-      );
+      const toAssign = editServiceIds.filter((id) => !currentIds.includes(id));
+
+      const toRemove = currentIds.filter((id) => !editServiceIds.includes(id));
 
       for (const serviceId of toAssign) {
-        await adminApi.assignStaffService(
-          editStaff.id,
-          serviceId
-        );
+        await adminApi.assignStaffService(editStaff.id, serviceId);
       }
 
       for (const serviceId of toRemove) {
-        await adminApi.removeStaffService(
-          editStaff.id,
-          serviceId
-        );
+        await adminApi.removeStaffService(editStaff.id, serviceId);
       }
 
       setStaff((prev) =>
         prev.map((employee) =>
-          employee.id === updated.id ? updated : employee
-        )
+          employee.id === updated.id ? updated : employee,
+        ),
       );
 
       // Обновляем список услуг сотрудника
-      const refreshed = await adminApi.getStaffServices(
-        editStaff.id
-      );
+      const refreshed = await adminApi.getStaffServices(editStaff.id);
 
       setServicesByStaff((prev) => ({
         ...prev,
@@ -271,9 +249,7 @@ export const AdminStaffPage = () => {
       setEditStaff(null);
     } catch (err) {
       setEditError(
-        err instanceof Error
-          ? err.message
-          : "Не удалось сохранить изменения"
+        err instanceof Error ? err.message : "Не удалось сохранить изменения",
       );
     } finally {
       setIsSavingEdit(false);
@@ -281,9 +257,7 @@ export const AdminStaffPage = () => {
   };
 
   // Создаём сотрудника
-  const handleCreate = async (
-    event: FormEvent<HTMLFormElement>
-  ) => {
+  const handleCreate = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     setCreateError("");
 
@@ -312,9 +286,7 @@ export const AdminStaffPage = () => {
       setCreatePosition("");
     } catch (err) {
       setCreateError(
-        err instanceof Error
-          ? err.message
-          : "Не удалось создать сотрудника"
+        err instanceof Error ? err.message : "Не удалось создать сотрудника",
       );
     } finally {
       setIsCreating(false);
@@ -364,8 +336,7 @@ export const AdminStaffPage = () => {
               maxWidth: 1060,
             }}
           >
-            Специалисты клуба и услуги, которые они могут
-            проводить.
+            Специалисты клуба и услуги, которые они могут проводить.
           </Typography>
         </Box>
 
@@ -544,16 +515,12 @@ export const AdminStaffPage = () => {
                   minHeight: 57,
                   py: "12px",
                   borderBottom:
-                    index < staff.length - 1
-                      ? "1px solid #DCE7F3"
-                      : "none",
+                    index < staff.length - 1 ? "1px solid #DCE7F3" : "none",
                 }}
               >
                 <Typography
                   sx={{
-                    color: employee.is_active
-                      ? "#102B52"
-                      : "#6B819E",
+                    color: employee.is_active ? "#102B52" : "#6B819E",
                     fontSize: 15,
                     fontWeight: 600,
                   }}
@@ -583,18 +550,12 @@ export const AdminStaffPage = () => {
 
                 <Typography
                   sx={{
-                    color: employee.is_active
-                      ? "#148C75"
-                      : "#6B819E",
+                    color: employee.is_active ? "#148C75" : "#6B819E",
                     fontSize: 15,
-                    fontWeight: employee.is_active
-                      ? 600
-                      : 400,
+                    fontWeight: employee.is_active ? 600 : 400,
                   }}
                 >
-                  {employee.is_active
-                    ? "Активен"
-                    : "Неактивен"}
+                  {employee.is_active ? "Активен" : "Неактивен"}
                 </Typography>
 
                 <Box>
@@ -647,8 +608,8 @@ export const AdminStaffPage = () => {
             maxWidth: 1020,
           }}
         >
-          Один сотрудник может вести разные занятия. Для услуг
-          без сотрудника назначение необязательно.
+          Один сотрудник может вести разные занятия. Для услуг без сотрудника
+          назначение необязательно.
         </Typography>
       </Box>
 
@@ -700,9 +661,7 @@ export const AdminStaffPage = () => {
 
                 <AppTextField
                   value={editName}
-                  onChange={(event) =>
-                    setEditName(event.target.value)
-                  }
+                  onChange={(event) => setEditName(event.target.value)}
                   fullWidth
                   autoFocus
                   sx={inputSx}
@@ -714,9 +673,7 @@ export const AdminStaffPage = () => {
 
                 <AppTextField
                   value={editPosition}
-                  onChange={(event) =>
-                    setEditPosition(event.target.value)
-                  }
+                  onChange={(event) => setEditPosition(event.target.value)}
                   fullWidth
                   sx={inputSx}
                 />
@@ -727,9 +684,7 @@ export const AdminStaffPage = () => {
               control={
                 <Switch
                   checked={editActive}
-                  onChange={(event) =>
-                    setEditActive(event.target.checked)
-                  }
+                  onChange={(event) => setEditActive(event.target.checked)}
                 />
               }
               label={
@@ -749,6 +704,7 @@ export const AdminStaffPage = () => {
             {editStaff && (
               <StaffPhotoUpload
                 key={editStaff.id}
+                staffId={editStaff.id}
                 staffName={editStaff.display_name}
               />
             )}
@@ -783,16 +739,12 @@ export const AdminStaffPage = () => {
                     key={service.id}
                     control={
                       <Checkbox
-                        checked={editServiceIds.includes(
-                          service.id
-                        )}
+                        checked={editServiceIds.includes(service.id)}
                         onChange={(event) =>
                           setEditServiceIds((prev) =>
                             event.target.checked
                               ? [...prev, service.id]
-                              : prev.filter(
-                                  (id) => id !== service.id
-                                )
+                              : prev.filter((id) => id !== service.id),
                           )
                         }
                         sx={{
@@ -810,8 +762,7 @@ export const AdminStaffPage = () => {
                           fontSize: 14,
                         }}
                       >
-                        {service.name} ·{" "}
-                        {service.duration_minutes} мин
+                        {service.name} · {service.duration_minutes} мин
                       </Typography>
                     }
                   />
@@ -907,11 +858,7 @@ export const AdminStaffPage = () => {
         </DialogTitle>
 
         <DialogContent>
-          <Box
-            component="form"
-            onSubmit={handleCreate}
-            noValidate
-          >
+          <Box component="form" onSubmit={handleCreate} noValidate>
             <Box
               sx={{
                 mt: "8px",
@@ -922,9 +869,7 @@ export const AdminStaffPage = () => {
 
               <AppTextField
                 value={createName}
-                onChange={(event) =>
-                  setCreateName(event.target.value)
-                }
+                onChange={(event) => setCreateName(event.target.value)}
                 fullWidth
                 autoFocus
                 sx={inputSx}
@@ -936,9 +881,7 @@ export const AdminStaffPage = () => {
 
               <AppTextField
                 value={createPosition}
-                onChange={(event) =>
-                  setCreatePosition(event.target.value)
-                }
+                onChange={(event) => setCreatePosition(event.target.value)}
                 fullWidth
                 placeholder="Инструктор"
                 sx={inputSx}
@@ -1002,9 +945,7 @@ export const AdminStaffPage = () => {
                   },
                 }}
               >
-                {isCreating
-                  ? "Создаём..."
-                  : "Создать сотрудника"}
+                {isCreating ? "Создаём..." : "Создать сотрудника"}
               </Button>
             </Box>
           </Box>

@@ -38,7 +38,7 @@ export const TrainerCard = ({
         },
       }}
     >
-      {/* Верхние 10% — имя тренера */}
+      {/* Верхняя часть — имя тренера */}
       <Box
         sx={{
           minHeight: 42,
@@ -61,7 +61,7 @@ export const TrainerCard = ({
         </Typography>
       </Box>
 
-      {/* Центральная часть — фото / оборот */}
+      {/* Центральная часть — фото и оборот карточки */}
       <Box
         component="button"
         type="button"
@@ -73,6 +73,7 @@ export const TrainerCard = ({
           display: "block",
           width: "100%",
           flex: 1,
+          minHeight: 0,
           border: 0,
           p: 0,
           m: 0,
@@ -100,7 +101,7 @@ export const TrainerCard = ({
             transform: isFlipped ? "rotateY(180deg)" : "rotateY(0deg)",
           }}
         >
-          {/* Передняя сторона */}
+          {/* Передняя сторона — фотография */}
           <Box
             sx={{
               position: "absolute",
@@ -123,6 +124,7 @@ export const TrainerCard = ({
                   width: "100%",
                   height: "100%",
                   objectFit: "cover",
+                  objectPosition: "center 25%",
                   display: "block",
                 }}
               />
@@ -167,6 +169,7 @@ export const TrainerCard = ({
               </Box>
             )}
 
+            {/* Кнопка-подсказка */}
             <Box
               sx={{
                 position: "absolute",
@@ -185,7 +188,7 @@ export const TrainerCard = ({
             </Box>
           </Box>
 
-          {/* Обратная сторона */}
+          {/* Обратная сторона — информация о тренере */}
           <Box
             sx={{
               position: "absolute",
@@ -261,7 +264,7 @@ export const TrainerCard = ({
         </Box>
       </Box>
 
-      {/* Нижние 10% — направление */}
+      {/* Нижняя часть — направление тренировок */}
       <Box
         sx={{
           minHeight: 42,
