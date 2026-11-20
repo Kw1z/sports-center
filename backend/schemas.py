@@ -238,6 +238,15 @@ class StaffCreate(BaseModel):
     )
 
 
+# Данные для создания аккаунта тренера
+class StaffAccountCreate(BaseModel):
+    email: EmailStr
+    password: str = Field(
+        min_length=8,
+        max_length=128
+    )
+
+
 # Изменение имени и должности сотрудника
 class StaffUpdate(BaseModel):
     display_name: str = Field(
