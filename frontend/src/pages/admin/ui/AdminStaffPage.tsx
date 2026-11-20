@@ -1,4 +1,6 @@
+
 import { useEffect, useState, type FormEvent } from "react";
+
 import {
   Box,
   Button,
@@ -21,7 +23,15 @@ import {
   type AdminStaff,
 } from "../../../shared/api/admin";
 
-const tableColumns = ["Сотрудник", "Специализация", "Услуги", "Статус", "Действия"];
+import { StaffPhotoUpload } from "./StaffPhotoUpload";
+
+const tableColumns = [
+  "Сотрудник",
+  "Специализация",
+  "Услуги",
+  "Статус",
+  "Действия",
+];
 
 // Стили полей в диалогах
 const inputSx = {
@@ -55,10 +65,12 @@ export const AdminStaffPage = () => {
   // Справочники
   const [staff, setStaff] = useState<AdminStaff[]>([]);
   const [services, setServices] = useState<AdminService[]>([]);
+
   // Назначенные услуги каждого сотрудника: id -> названия
   const [servicesByStaff, setServicesByStaff] = useState<
     Record<number, { id: number; name: string }[]>
   >({});
+
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState("");
 
@@ -102,7 +114,9 @@ export const AdminStaffPage = () => {
         const results = await Promise.all(
           staffData.map(async (employee) => {
             try {
-              const assigned = await adminApi.getStaffServices(employee.id);
+              const assigned = await adminApi.getStaffServices(
+                employee.id
+              );
 
               return [
                 employee.id,
@@ -143,13 +157,18 @@ export const AdminStaffPage = () => {
   }, []);
 
   // KPI по специальностям
-  const activeCount = staff.filter((employee) => employee.is_active).length;
+  const activeCount = staff.filter(
+    (employee) => employee.is_active
+  ).length;
+
   const instructors = staff.filter((employee) =>
     employee.position.toLowerCase().includes("инструктор")
   ).length;
+
   const masseurs = staff.filter((employee) =>
     employee.position.toLowerCase().includes("массажист")
   ).length;
+
   const others = staff.length - instructors - masseurs;
 
   // Открываем диалог настройки
@@ -158,9 +177,13 @@ export const AdminStaffPage = () => {
     setEditName(employee.display_name);
     setEditPosition(employee.position);
     setEditActive(employee.is_active);
+
     setEditServiceIds(
-      (servicesByStaff[employee.id] ?? []).map((service) => service.id)
+      (servicesByStaff[employee.id] ?? []).map(
+        (service) => service.id
+      )
     );
+
     setEditError("");
   };
 
@@ -193,34 +216,50 @@ export const AdminStaffPage = () => {
       }
 
       if (editActive !== editStaff.is_active) {
-        updated = await adminApi.updateStaffStatus(editStaff.id, editActive);
+        updated = await adminApi.updateStaffStatus(
+          editStaff.id,
+          editActive
+        );
       }
 
       // Разница в услугах: добавить новые, снять снятые
-      const currentIds = (servicesByStaff[editStaff.id] ?? []).map(
-        (service) => service.id
-      );
+      const currentIds = (
+        servicesByStaff[editStaff.id] ?? []
+      ).map((service) => service.id);
+
       const toAssign = editServiceIds.filter(
         (id) => !currentIds.includes(id)
       );
+
       const toRemove = currentIds.filter(
         (id) => !editServiceIds.includes(id)
       );
 
       for (const serviceId of toAssign) {
-        await adminApi.assignStaffService(editStaff.id, serviceId);
+        await adminApi.assignStaffService(
+          editStaff.id,
+          serviceId
+        );
       }
 
       for (const serviceId of toRemove) {
-        await adminApi.removeStaffService(editStaff.id, serviceId);
+        await adminApi.removeStaffService(
+          editStaff.id,
+          serviceId
+        );
       }
 
       setStaff((prev) =>
-        prev.map((employee) => (employee.id === updated.id ? updated : employee))
+        prev.map((employee) =>
+          employee.id === updated.id ? updated : employee
+        )
       );
 
       // Обновляем список услуг сотрудника
-      const refreshed = await adminApi.getStaffServices(editStaff.id);
+      const refreshed = await adminApi.getStaffServices(
+        editStaff.id
+      );
+
       setServicesByStaff((prev) => ({
         ...prev,
         [editStaff.id]: refreshed.map((service) => ({
@@ -232,7 +271,9 @@ export const AdminStaffPage = () => {
       setEditStaff(null);
     } catch (err) {
       setEditError(
-        err instanceof Error ? err.message : "Не удалось сохранить изменения"
+        err instanceof Error
+          ? err.message
+          : "Не удалось сохранить изменения"
       );
     } finally {
       setIsSavingEdit(false);
@@ -240,7 +281,9 @@ export const AdminStaffPage = () => {
   };
 
   // Создаём сотрудника
-  const handleCreate = async (event: FormEvent<HTMLFormElement>) => {
+  const handleCreate = async (
+    event: FormEvent<HTMLFormElement>
+  ) => {
     event.preventDefault();
     setCreateError("");
 
@@ -258,13 +301,20 @@ export const AdminStaffPage = () => {
       });
 
       setStaff((prev) => [...prev, created]);
-      setServicesByStaff((prev) => ({ ...prev, [created.id]: [] }));
+
+      setServicesByStaff((prev) => ({
+        ...prev,
+        [created.id]: [],
+      }));
+
       setIsCreateOpen(false);
       setCreateName("");
       setCreatePosition("");
     } catch (err) {
       setCreateError(
-        err instanceof Error ? err.message : "Не удалось создать сотрудника"
+        err instanceof Error
+          ? err.message
+          : "Не удалось создать сотрудника"
       );
     } finally {
       setIsCreating(false);
@@ -284,7 +334,10 @@ export const AdminStaffPage = () => {
       <Box
         sx={{
           display: "flex",
-          alignItems: { xs: "flex-start", md: "center" },
+          alignItems: {
+            xs: "flex-start",
+            md: "center",
+          },
           justifyContent: "space-between",
           gap: 3,
           flexWrap: "wrap",
@@ -304,9 +357,15 @@ export const AdminStaffPage = () => {
           </Typography>
 
           <Typography
-            sx={{ color: "#6B819E", fontSize: 16, mt: "16px", maxWidth: 1060 }}
+            sx={{
+              color: "#6B819E",
+              fontSize: 16,
+              mt: "16px",
+              maxWidth: 1060,
+            }}
           >
-            Специалисты клуба и услуги, которые они могут проводить.
+            Специалисты клуба и услуги, которые они могут
+            проводить.
           </Typography>
         </Box>
 
@@ -326,7 +385,10 @@ export const AdminStaffPage = () => {
             fontSize: 15,
             textTransform: "none",
             boxShadow: "none",
-            "&:hover": { bgcolor: "#0F57D9", boxShadow: "none" },
+            "&:hover": {
+              bgcolor: "#0F57D9",
+              boxShadow: "none",
+            },
           }}
         >
           + Добавить сотрудника
@@ -346,10 +408,33 @@ export const AdminStaffPage = () => {
           mt: { xs: 4, lg: "26px" },
         }}
       >
-        <KpiCard label="Активных сотрудников" value={String(activeCount)} accent sx={{ minHeight: 112 }} />
-        <KpiCard label="Инструкторов" value={String(instructors)} accent sx={{ minHeight: 112 }} />
-        <KpiCard label="Массажистов" value={String(masseurs)} accent sx={{ minHeight: 112 }} />
-        <KpiCard label="Другие специалисты" value={String(others < 0 ? 0 : others)} accent sx={{ minHeight: 112 }} />
+        <KpiCard
+          label="Активных сотрудников"
+          value={String(activeCount)}
+          accent
+          sx={{ minHeight: 112 }}
+        />
+
+        <KpiCard
+          label="Инструкторов"
+          value={String(instructors)}
+          accent
+          sx={{ minHeight: 112 }}
+        />
+
+        <KpiCard
+          label="Массажистов"
+          value={String(masseurs)}
+          accent
+          sx={{ minHeight: 112 }}
+        />
+
+        <KpiCard
+          label="Другие специалисты"
+          value={String(others < 0 ? 0 : others)}
+          accent
+          sx={{ minHeight: 112 }}
+        />
       </Box>
 
       {/* Таблица */}
@@ -379,7 +464,12 @@ export const AdminStaffPage = () => {
             justifyContent: "center",
           }}
         >
-          <Typography sx={{ color: "error.main", fontSize: 16 }}>
+          <Typography
+            sx={{
+              color: "error.main",
+              fontSize: 16,
+            }}
+          >
             {error}
           </Typography>
         </Box>
@@ -410,7 +500,11 @@ export const AdminStaffPage = () => {
             {tableColumns.map((column) => (
               <Typography
                 key={column}
-                sx={{ color: "#6B819E", fontSize: 14, fontWeight: 600 }}
+                sx={{
+                  color: "#6B819E",
+                  fontSize: 14,
+                  fontWeight: 600,
+                }}
               >
                 {column}
               </Typography>
@@ -418,8 +512,19 @@ export const AdminStaffPage = () => {
           </Box>
 
           {staff.length === 0 ? (
-            <Box sx={{ px: "14px", py: "48px", textAlign: "center" }}>
-              <Typography sx={{ color: "#6B819E", fontSize: 15 }}>
+            <Box
+              sx={{
+                px: "14px",
+                py: "48px",
+                textAlign: "center",
+              }}
+            >
+              <Typography
+                sx={{
+                  color: "#6B819E",
+                  fontSize: 15,
+                }}
+              >
                 Сотрудников пока нет — добавьте первого.
               </Typography>
             </Box>
@@ -439,35 +544,59 @@ export const AdminStaffPage = () => {
                   minHeight: 57,
                   py: "12px",
                   borderBottom:
-                    index < staff.length - 1 ? "1px solid #DCE7F3" : "none",
+                    index < staff.length - 1
+                      ? "1px solid #DCE7F3"
+                      : "none",
                 }}
               >
                 <Typography
                   sx={{
-                    color: employee.is_active ? "#102B52" : "#6B819E",
+                    color: employee.is_active
+                      ? "#102B52"
+                      : "#6B819E",
                     fontSize: 15,
                     fontWeight: 600,
                   }}
                 >
                   {employee.display_name}
                 </Typography>
-                <Typography sx={{ color: "#6B819E", fontSize: 15 }}>
+
+                <Typography
+                  sx={{
+                    color: "#6B819E",
+                    fontSize: 15,
+                  }}
+                >
                   {employee.position}
                 </Typography>
-                <Typography sx={{ color: "#6B819E", fontSize: 15 }}>
+
+                <Typography
+                  sx={{
+                    color: "#6B819E",
+                    fontSize: 15,
+                  }}
+                >
                   {(servicesByStaff[employee.id] ?? [])
                     .map((service) => service.name)
                     .join(", ") || "—"}
                 </Typography>
+
                 <Typography
                   sx={{
-                    color: employee.is_active ? "#148C75" : "#6B819E",
+                    color: employee.is_active
+                      ? "#148C75"
+                      : "#6B819E",
                     fontSize: 15,
-                    fontWeight: employee.is_active ? 600 : 400,
+                    fontWeight: employee.is_active
+                      ? 600
+                      : 400,
                   }}
                 >
-                  {employee.is_active ? "Активен" : "Неактивен"}
+                  {employee.is_active
+                    ? "Активен"
+                    : "Неактивен"}
                 </Typography>
+
                 <Box>
                   <Button
                     onClick={() => openEditDialog(employee)}
@@ -501,16 +630,25 @@ export const AdminStaffPage = () => {
       >
         <Typography
           component="h2"
-          sx={{ color: "#102B52", fontSize: 18, fontWeight: 700 }}
+          sx={{
+            color: "#102B52",
+            fontSize: 18,
+            fontWeight: 700,
+          }}
         >
           Связи staff_services
         </Typography>
 
         <Typography
-          sx={{ color: "#6B819E", fontSize: 15, mt: "21px", maxWidth: 1020 }}
+          sx={{
+            color: "#6B819E",
+            fontSize: 15,
+            mt: "21px",
+            maxWidth: 1020,
+          }}
         >
-          Один сотрудник может вести разные занятия. Для услуг без сотрудника
-          назначение необязательно.
+          Один сотрудник может вести разные занятия. Для услуг
+          без сотрудника назначение необязательно.
         </Typography>
       </Box>
 
@@ -518,20 +656,53 @@ export const AdminStaffPage = () => {
       <Dialog
         open={editStaff !== null}
         onClose={() => setEditStaff(null)}
-        slotProps={{ paper: { sx: { borderRadius: "16px", px: 1 } } }}
+        slotProps={{
+          paper: {
+            sx: {
+              borderRadius: "16px",
+              px: 1,
+            },
+          },
+        }}
       >
-        <DialogTitle sx={{ color: "#102B52", fontWeight: 700, fontSize: 20 }}>
+        <DialogTitle
+          sx={{
+            color: "#102B52",
+            fontWeight: 700,
+            fontSize: 20,
+          }}
+        >
           Настройка сотрудника
         </DialogTitle>
 
         <DialogContent>
-          <Box component="form" onSubmit={(event) => { event.preventDefault(); void handleSaveEdit(); }} noValidate>
-            <Box sx={{ display: "grid", gridTemplateColumns: { xs: "1fr", sm: "1fr 1fr" }, columnGap: "20px", mt: "8px" }}>
+          <Box
+            component="form"
+            onSubmit={(event) => {
+              event.preventDefault();
+              void handleSaveEdit();
+            }}
+            noValidate
+          >
+            <Box
+              sx={{
+                display: "grid",
+                gridTemplateColumns: {
+                  xs: "1fr",
+                  sm: "1fr 1fr",
+                },
+                columnGap: "20px",
+                mt: "8px",
+              }}
+            >
               <Box sx={{ mb: "21px" }}>
                 <FieldLabel>Имя</FieldLabel>
+
                 <AppTextField
                   value={editName}
-                  onChange={(event) => setEditName(event.target.value)}
+                  onChange={(event) =>
+                    setEditName(event.target.value)
+                  }
                   fullWidth
                   autoFocus
                   sx={inputSx}
@@ -540,9 +711,12 @@ export const AdminStaffPage = () => {
 
               <Box sx={{ mb: "21px" }}>
                 <FieldLabel>Специализация</FieldLabel>
+
                 <AppTextField
                   value={editPosition}
-                  onChange={(event) => setEditPosition(event.target.value)}
+                  onChange={(event) =>
+                    setEditPosition(event.target.value)
+                  }
                   fullWidth
                   sx={inputSx}
                 />
@@ -553,17 +727,33 @@ export const AdminStaffPage = () => {
               control={
                 <Switch
                   checked={editActive}
-                  onChange={(event) => setEditActive(event.target.checked)}
+                  onChange={(event) =>
+                    setEditActive(event.target.checked)
+                  }
                 />
               }
               label={
-                <Typography sx={{ color: "#102B52", fontSize: 14 }}>
+                <Typography
+                  sx={{
+                    color: "#102B52",
+                    fontSize: 14,
+                  }}
+                >
                   Активен
                 </Typography>
               }
               sx={{ mb: "16px" }}
             />
 
+            {/* Фотография сотрудника */}
+            {editStaff && (
+              <StaffPhotoUpload
+                key={editStaff.id}
+                staffName={editStaff.display_name}
+              />
+            )}
+
+            {/* Услуги сотрудника */}
             <FieldLabel>Услуги сотрудника</FieldLabel>
 
             <Box
@@ -578,7 +768,13 @@ export const AdminStaffPage = () => {
               }}
             >
               {services.length === 0 ? (
-                <Typography sx={{ color: "#6B819E", fontSize: 14, py: "8px" }}>
+                <Typography
+                  sx={{
+                    color: "#6B819E",
+                    fontSize: 14,
+                    py: "8px",
+                  }}
+                >
                   В каталоге нет услуг.
                 </Typography>
               ) : (
@@ -587,20 +783,35 @@ export const AdminStaffPage = () => {
                     key={service.id}
                     control={
                       <Checkbox
-                        checked={editServiceIds.includes(service.id)}
+                        checked={editServiceIds.includes(
+                          service.id
+                        )}
                         onChange={(event) =>
                           setEditServiceIds((prev) =>
                             event.target.checked
                               ? [...prev, service.id]
-                              : prev.filter((id) => id !== service.id)
+                              : prev.filter(
+                                  (id) => id !== service.id
+                                )
                           )
                         }
-                        sx={{ color: "#176BFF", "&.Mui-checked": { color: "#176BFF" } }}
+                        sx={{
+                          color: "#176BFF",
+                          "&.Mui-checked": {
+                            color: "#176BFF",
+                          },
+                        }}
                       />
                     }
                     label={
-                      <Typography sx={{ color: "#102B52", fontSize: 14 }}>
-                        {service.name} · {service.duration_minutes} мин
+                      <Typography
+                        sx={{
+                          color: "#102B52",
+                          fontSize: 14,
+                        }}
+                      >
+                        {service.name} ·{" "}
+                        {service.duration_minutes} мин
                       </Typography>
                     }
                   />
@@ -609,12 +820,26 @@ export const AdminStaffPage = () => {
             </Box>
 
             {editError && (
-              <Typography role="alert" sx={{ mt: "8px", fontSize: 13, color: "error.main" }}>
+              <Typography
+                role="alert"
+                sx={{
+                  mt: "8px",
+                  fontSize: 13,
+                  color: "error.main",
+                }}
+              >
                 {editError}
               </Typography>
             )}
 
-            <Box sx={{ display: "flex", gap: 2, mt: "24px", mb: 2 }}>
+            <Box
+              sx={{
+                display: "flex",
+                gap: 2,
+                mt: "24px",
+                mb: 2,
+              }}
+            >
               <Button
                 onClick={() => setEditStaff(null)}
                 sx={{
@@ -625,7 +850,9 @@ export const AdminStaffPage = () => {
                   fontWeight: 600,
                   textTransform: "none",
                   flex: 1,
-                  "&:hover": { bgcolor: "#DCE7F3" },
+                  "&:hover": {
+                    bgcolor: "#DCE7F3",
+                  },
                 }}
               >
                 Отмена
@@ -643,7 +870,10 @@ export const AdminStaffPage = () => {
                   textTransform: "none",
                   flex: 1,
                   boxShadow: "none",
-                  "&:hover": { bgcolor: "#0F57D9", boxShadow: "none" },
+                  "&:hover": {
+                    bgcolor: "#0F57D9",
+                    boxShadow: "none",
+                  },
                 }}
               >
                 {isSavingEdit ? "Сохраняем..." : "Сохранить"}
@@ -657,19 +887,44 @@ export const AdminStaffPage = () => {
       <Dialog
         open={isCreateOpen}
         onClose={() => setIsCreateOpen(false)}
-        slotProps={{ paper: { sx: { borderRadius: "16px", px: 1 } } }}
+        slotProps={{
+          paper: {
+            sx: {
+              borderRadius: "16px",
+              px: 1,
+            },
+          },
+        }}
       >
-        <DialogTitle sx={{ color: "#102B52", fontWeight: 700, fontSize: 20 }}>
+        <DialogTitle
+          sx={{
+            color: "#102B52",
+            fontWeight: 700,
+            fontSize: 20,
+          }}
+        >
           Новый сотрудник
         </DialogTitle>
 
         <DialogContent>
-          <Box component="form" onSubmit={handleCreate} noValidate>
-            <Box sx={{ mt: "8px", mb: "21px" }}>
+          <Box
+            component="form"
+            onSubmit={handleCreate}
+            noValidate
+          >
+            <Box
+              sx={{
+                mt: "8px",
+                mb: "21px",
+              }}
+            >
               <FieldLabel>Имя</FieldLabel>
+
               <AppTextField
                 value={createName}
-                onChange={(event) => setCreateName(event.target.value)}
+                onChange={(event) =>
+                  setCreateName(event.target.value)
+                }
                 fullWidth
                 autoFocus
                 sx={inputSx}
@@ -678,9 +933,12 @@ export const AdminStaffPage = () => {
 
             <Box sx={{ mb: "21px" }}>
               <FieldLabel>Специализация</FieldLabel>
+
               <AppTextField
                 value={createPosition}
-                onChange={(event) => setCreatePosition(event.target.value)}
+                onChange={(event) =>
+                  setCreatePosition(event.target.value)
+                }
                 fullWidth
                 placeholder="Инструктор"
                 sx={inputSx}
@@ -688,12 +946,26 @@ export const AdminStaffPage = () => {
             </Box>
 
             {createError && (
-              <Typography role="alert" sx={{ mt: "8px", fontSize: 13, color: "error.main" }}>
+              <Typography
+                role="alert"
+                sx={{
+                  mt: "8px",
+                  fontSize: 13,
+                  color: "error.main",
+                }}
+              >
                 {createError}
               </Typography>
             )}
 
-            <Box sx={{ display: "flex", gap: 2, mt: "24px", mb: 2 }}>
+            <Box
+              sx={{
+                display: "flex",
+                gap: 2,
+                mt: "24px",
+                mb: 2,
+              }}
+            >
               <Button
                 onClick={() => setIsCreateOpen(false)}
                 sx={{
@@ -704,7 +976,9 @@ export const AdminStaffPage = () => {
                   fontWeight: 600,
                   textTransform: "none",
                   flex: 1,
-                  "&:hover": { bgcolor: "#DCE7F3" },
+                  "&:hover": {
+                    bgcolor: "#DCE7F3",
+                  },
                 }}
               >
                 Отмена
@@ -722,10 +996,15 @@ export const AdminStaffPage = () => {
                   textTransform: "none",
                   flex: 1,
                   boxShadow: "none",
-                  "&:hover": { bgcolor: "#0F57D9", boxShadow: "none" },
+                  "&:hover": {
+                    bgcolor: "#0F57D9",
+                    boxShadow: "none",
+                  },
                 }}
               >
-                {isCreating ? "Создаём..." : "Создать сотрудника"}
+                {isCreating
+                  ? "Создаём..."
+                  : "Создать сотрудника"}
               </Button>
             </Box>
           </Box>
