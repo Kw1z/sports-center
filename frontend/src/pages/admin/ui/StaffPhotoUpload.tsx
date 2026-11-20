@@ -5,6 +5,7 @@ import {
   Alert,
   Box,
   Button,
+  CircularProgress,
   Typography,
 } from "@mui/material";
 
@@ -12,8 +13,16 @@ import AddPhotoAlternateOutlinedIcon from "@mui/icons-material/AddPhotoAlternate
 import PersonIcon from "@mui/icons-material/Person";
 
 type StaffPhotoUploadProps = {
+  staffId: number;
   staffName: string;
 };
+
+type PhotoUploadResponse = {
+  photo_url?: string | null;
+};
+
+const API_URL = import.meta.env.VITE_API_URL || "/api";
+const TOKEN_KEY = "bluepulse_token";
 
 const MAX_FILE_SIZE = 5 * 1024 * 1024;
 
@@ -24,12 +33,23 @@ const ALLOWED_TYPES = [
 ];
 
 export const StaffPhotoUpload = ({
+  staffId,
   staffName,
 }: StaffPhotoUploadProps) => {
-  const [selectedFile, setSelectedFile] = useState<File | null>(null);
-  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
-  const [error, setError] = useState("");
+  const [selectedFile, setSelectedFile] = useState<File | null>(
+    null
+  );
 
+  const [previewUrl, setPreviewUrl] = useState<string | null>(
+    null
+  );
+
+  const [error, setError] = useState("");
+  const [success, setSuccess] = useState("");
+  const [isUploading, setIsUploading] = useState(false);
+  const [isUploaded, setIsUploaded] = useState(false);
+
+  // Создаём предпросмотр фотографии
   useEffect(() => {
     if (!selectedFile) {
       setPreviewUrl(null);
@@ -39,9 +59,12 @@ export const StaffPhotoUpload = ({
     const url = URL.createObjectURL(selectedFile);
     setPreviewUrl(url);
 
-    return () => URL.revokeObjectURL(url);
+    return () => {
+      URL.revokeObjectURL(url);
+    };
   }, [selectedFile]);
 
+  // Выбор фотографии
   const handleFileChange = (
     event: ChangeEvent<HTMLInputElement>
   ) => {
@@ -54,6 +77,7 @@ export const StaffPhotoUpload = ({
     }
 
     setError("");
+    setSuccess("");
 
     if (!ALLOWED_TYPES.includes(file.type)) {
       setError("Выберите фотографию JPG, PNG или WebP");
@@ -66,6 +90,96 @@ export const StaffPhotoUpload = ({
     }
 
     setSelectedFile(file);
+    setIsUploaded(false);
+  };
+
+  // Загрузка фотографии на сервер
+  const handleUpload = async () => {
+    if (!selectedFile || isUploading || isUploaded) {
+      return;
+    }
+
+    setError("");
+    setSuccess("");
+    setIsUploading(true);
+
+    try {
+      const token = sessionStorage.getItem(TOKEN_KEY);
+
+      if (!token) {
+        throw new Error(
+          "Требуется вход в аккаунт администратора"
+        );
+      }
+
+      const formData = new FormData();
+
+      // Backend ожидает поле photo
+      formData.append("photo", selectedFile);
+
+      let response: Response;
+
+      try {
+        response = await fetch(
+          `${API_URL}/admin/staff/${staffId}/photo`,
+          {
+            method: "POST",
+            headers: {
+              Authorization: `Bearer ${token}`,
+            },
+            body: formData,
+          }
+        );
+      } catch {
+        throw new Error(
+          "Не удалось подключиться к серверу"
+        );
+      }
+
+      if (!response.ok) {
+        const errorData: {
+          detail?: string | { msg: string }[];
+        } = await response.json().catch(() => ({}));
+
+        let message = "Не удалось загрузить фотографию";
+
+        if (typeof errorData.detail === "string") {
+          message = errorData.detail;
+        } else if (Array.isArray(errorData.detail)) {
+          message = errorData.detail
+            .map((item) => item.msg)
+            .join(", ");
+        }
+
+        throw new Error(message);
+      }
+
+      const result: PhotoUploadResponse =
+        await response.json();
+
+      setIsUploaded(true);
+
+      setSuccess(
+        result.photo_url
+          ? "Фотография успешно сохранена на сервере!"
+          : "Фотография успешно загружена!"
+      );
+    } catch (err) {
+      setError(
+        err instanceof Error
+          ? err.message
+          : "Ошибка загрузки фотографии"
+      );
+    } finally {
+      setIsUploading(false);
+    }
+  };
+
+  const handleRemoveSelected = () => {
+    setSelectedFile(null);
+    setError("");
+    setSuccess("");
+    setIsUploaded(false);
   };
 
   return (
@@ -100,6 +214,7 @@ export const StaffPhotoUpload = ({
           gap: 2,
         }}
       >
+        {/* Предпросмотр */}
         <Box
           sx={{
             width: 120,
@@ -117,7 +232,7 @@ export const StaffPhotoUpload = ({
             <Box
               component="img"
               src={previewUrl}
-              alt={`Предпросмотр фотографии: ${staffName}`}
+              alt={`Фотография: ${staffName}`}
               sx={{
                 width: "100%",
                 height: "100%",
@@ -134,10 +249,12 @@ export const StaffPhotoUpload = ({
           )}
         </Box>
 
+        {/* Выбор файла */}
         <Box sx={{ flex: 1, width: "100%" }}>
           <Button
             component="label"
             variant="outlined"
+            disabled={isUploading}
             startIcon={<AddPhotoAlternateOutlinedIcon />}
             sx={{
               color: "#176BFF",
@@ -183,7 +300,8 @@ export const StaffPhotoUpload = ({
               <Button
                 type="button"
                 size="small"
-                onClick={() => setSelectedFile(null)}
+                disabled={isUploading}
+                onClick={handleRemoveSelected}
                 sx={{
                   mt: 0.5,
                   px: 0,
@@ -197,43 +315,55 @@ export const StaffPhotoUpload = ({
         </Box>
       </Box>
 
+      {/* Ошибка */}
       {error && (
         <Alert severity="error" sx={{ mt: 2 }}>
           {error}
         </Alert>
       )}
 
-      {selectedFile && (
-        <Alert severity="info" sx={{ mt: 2 }}>
-          Фотография выбрана, но пока не загружена на сервер.
+      {/* Успешная загрузка */}
+      {success && (
+        <Alert severity="success" sx={{ mt: 2 }}>
+          {success}
         </Alert>
       )}
 
+      {/* Кнопка загрузки */}
       <Button
         type="button"
         variant="contained"
-        disabled
         fullWidth
+        disabled={
+          !selectedFile || isUploading || isUploaded
+        }
+        onClick={() => void handleUpload()}
+        startIcon={
+          isUploading ? (
+            <CircularProgress
+              size={18}
+              color="inherit"
+            />
+          ) : undefined
+        }
         sx={{
           mt: 2,
+          minHeight: 44,
+          bgcolor: "#176BFF",
           borderRadius: "10px",
           textTransform: "none",
           fontWeight: 600,
+          "&:hover": {
+            bgcolor: "#0F57D9",
+          },
         }}
       >
-        Загрузить фотографию
+        {isUploading
+          ? "Загружаем..."
+          : isUploaded
+            ? "Фотография загружена"
+            : "Загрузить фотографию"}
       </Button>
-
-      <Typography
-        sx={{
-          color: "#6B819E",
-          fontSize: 12,
-          mt: 1,
-          textAlign: "center",
-        }}
-      >
-        Загрузка станет доступна после подключения API.
-      </Typography>
     </Box>
   );
 };
